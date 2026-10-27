@@ -1,57 +1,113 @@
 import { describe, expect, it } from 'vitest';
-import { gridFromRows } from '../src/rules/grid';
-import { applyIntent } from '../src/rules/reducer';
+import { applyIntent, type IntentResult } from '../src/rules/reducer';
 import { createRng } from '../src/rules/rng';
-import type { GameState, Pos, Stat, Unit } from '../src/rules/types';
-
-function unit(id: string, ownerId: string, pos: Pos): Unit {
-  const base = { hp: 10, mp: 0, atk: 1, mag: 1, def: 0, res: 0, spd: 5, move: 3, jump: 1, evade: 0 } satisfies Record<Stat, number>;
-  return { id, ownerId, name: id, base, pos, facing: 2 };
-}
-
-function state(): GameState {
-  return {
-    grid: gridFromRows(['0000', '0000', '0000']),
-    units: [unit('a', 'p1', { x: 0, y: 0 }), unit('b', 'p2', { x: 3, y: 2 })],
-  };
-}
+import { CT_CARRY } from '../src/rules/turn';
+import type { GameState, Intent } from '../src/rules/types';
+import { battle, flat, makeUnit } from './fixtures';
 
 const rng = createRng(1);
 
-describe('applyIntent move', () => {
+function ok(r: IntentResult) {
+  if ('error' in r) throw new Error(r.error);
+  return r;
+}
+
+// p1 squire 's' and archer 'a' are active; two enemy squires stand to the north.
+function state(): GameState {
+  return battle(
+    flat(6, 6),
+    [
+      makeUnit('s', 'p1', 'squire', { x: 0, y: 5 }, { patch: { ct: 100 } }),
+      makeUnit('a', 'p1', 'archer', { x: 1, y: 5 }, { patch: { ct: 100 } }),
+      makeUnit('e1', 'enemy', 'archer', { x: 1, y: 1 }, { facing: 0 }),
+      makeUnit('e2', 'enemy', 'squire', { x: 5, y: 0 }),
+    ],
+    ['s', 'a'],
+  );
+}
+
+const apply = (s: GameState, intent: Intent) => applyIntent(s, intent, rng);
+
+describe('move', () => {
   it('moves the unit, faces it along the last step and emits the path', () => {
-    const s = state();
-    const r = applyIntent(s, { type: 'move', unitId: 'a', to: { x: 2, y: 0 } }, rng);
-    if ('error' in r) throw new Error(r.error);
-    const a = r.state.units.find((u) => u.id === 'a')!;
-    expect(a.pos).toEqual({ x: 2, y: 0 });
-    expect(a.facing).toBe(1);
-    expect(r.events).toEqual([{ type: 'moved', unitId: 'a', path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }] }]);
+    const r = ok(apply(state(), { type: 'move', unitId: 's', to: { x: 2, y: 5 } }));
+    const s = r.state.units.find((u) => u.id === 's')!;
+    expect(s.pos).toEqual({ x: 2, y: 5 });
+    expect(s.facing).toBe(1);
+    expect(r.events).toEqual([
+      // Through the allied archer at (1, 5), which can be passed but not stopped on.
+      { type: 'moved', unitId: 's', path: [{ x: 0, y: 5 }, { x: 1, y: 5 }, { x: 2, y: 5 }] },
+    ]);
+  });
+
+  it('allows one move per turn and respects reach', () => {
+    const s0 = state();
+    expect(apply(s0, { type: 'move', unitId: 's', to: { x: 0, y: 0 } })).toHaveProperty('error'); // 5 steps, move 4
+    const r = ok(apply(s0, { type: 'move', unitId: 's', to: { x: 0, y: 4 } }));
+    expect(apply(r.state, { type: 'move', unitId: 's', to: { x: 0, y: 3 } })).toEqual({ error: 'already moved' });
   });
 
   it('does not mutate the input state', () => {
     const s = state();
     const before = JSON.stringify(s);
-    applyIntent(s, { type: 'move', unitId: 'a', to: { x: 1, y: 0 } }, rng);
+    apply(s, { type: 'move', unitId: 's', to: { x: 0, y: 4 } });
+    apply(s, { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } });
     expect(JSON.stringify(s)).toBe(before);
-  });
-
-  it('rejects unreachable, occupied, out-of-bounds and no-op moves', () => {
-    const s = state();
-    const move = (to: Pos, unitId = 'a') => applyIntent(s, { type: 'move', unitId, to }, rng);
-    expect(move({ x: 3, y: 1 })).toHaveProperty('error'); // 4 steps, move 3
-    expect(move({ x: 3, y: 2 }, 'b')).toHaveProperty('error'); // own tile
-    expect(move({ x: 9, y: 9 })).toHaveProperty('error');
-    expect(move({ x: 0, y: 0 })).toHaveProperty('error');
-    expect(move({ x: 0, y: 0 }, 'zz')).toHaveProperty('error');
   });
 });
 
-describe('applyIntent face', () => {
-  it('sets facing', () => {
-    const r = applyIntent(state(), { type: 'face', unitId: 'a', facing: 3 }, rng);
-    if ('error' in r) throw new Error(r.error);
+describe('act', () => {
+  it('resolves the ability and marks the unit as having acted', () => {
+    // e1 faces north, so the archer shoots it in the back: 100% hit, (14 - 4) * 1.25 = 12.5 -> 13.
+    const r = ok(apply(state(), { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } }));
+    expect(r.state.units.find((u) => u.id === 'e1')!.hp).toBe(32 - 13);
+    expect(r.state.turn).toMatchObject({ active: [{ unitId: 's' }, { unitId: 'a', acted: true }] });
+    expect(apply(r.state, { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } })).toEqual({ error: 'already acted' });
+  });
+
+  it('rejects out-of-range targets, unknown abilities and missing MP', () => {
+    const s = state();
+    expect(apply(s, { type: 'act', unitId: 's', abilityId: 'strike', target: { x: 1, y: 1 } })).toEqual({ error: 'target out of range' });
+    expect(apply(s, { type: 'act', unitId: 's', abilityId: 'mend', target: { x: 0, y: 5 } })).toHaveProperty('error');
+    const broke = { ...s, units: s.units.map((u) => (u.id === 'a' ? { ...u, mp: 0 } : u)) };
+    expect(apply(broke, { type: 'act', unitId: 'a', abilityId: 'aim', target: { x: 1, y: 1 } })).toEqual({ error: 'not enough MP' });
+  });
+
+  it('ends the battle when the last enemy goes down', () => {
+    const s = state();
+    const last = {
+      ...s,
+      units: s.units.filter((u) => u.id !== 'e2').map((u) => (u.id === 'e1' ? { ...u, hp: 1 } : u)),
+    };
+    const r = ok(apply(last, { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } }));
+    expect(r.state.turn).toEqual({ phase: 'over', winner: 'player' });
+    expect(apply(r.state, { type: 'wait', unitId: 's' })).toEqual({ error: 'battle is over' });
+  });
+});
+
+describe('turn ownership', () => {
+  it('only lets active units act', () => {
+    expect(apply(state(), { type: 'move', unitId: 'e1', to: { x: 0, y: 2 } })).toHaveProperty('error');
+  });
+
+  it('makes enemies act strictly in order', () => {
+    const s = battle(flat(4, 4), [makeUnit('e1', 'enemy', 'squire', { x: 0, y: 0 }), makeUnit('e2', 'enemy', 'squire', { x: 3, y: 3 }), makeUnit('p', 'p1', 'squire', { x: 3, y: 0 })], ['e1', 'e2'], 'enemy');
+    expect(apply(s, { type: 'wait', unitId: 'e2' })).toHaveProperty('error');
+    expect('error' in apply(s, { type: 'wait', unitId: 'e1' })).toBe(false);
+  });
+});
+
+describe('face and wait', () => {
+  it('sets facing at any point in the turn', () => {
+    const r = ok(apply(state(), { type: 'face', unitId: 's', facing: 3 }));
     expect(r.state.units[0]!.facing).toBe(3);
-    expect(r.events).toEqual([{ type: 'faced', unitId: 'a', facing: 3 }]);
+    expect(r.events).toEqual([{ type: 'faced', unitId: 's', facing: 3 }]);
+  });
+
+  it('ends the turn with the CT carry for what the unit did', () => {
+    const moved = ok(apply(state(), { type: 'move', unitId: 's', to: { x: 0, y: 4 } }));
+    const r = ok(apply(moved.state, { type: 'wait', unitId: 's' }));
+    expect(r.state.units[0]!.ct).toBe(CT_CARRY.one);
+    expect(r.state.turn).toMatchObject({ phase: 'player', active: [{ unitId: 'a' }] });
   });
 });
