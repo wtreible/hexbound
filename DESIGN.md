@@ -308,8 +308,20 @@ function applyIntent(state: GameState, intent: Intent, rng: Rng):
 - Grid coordinates are `{ x, y }`, stored row-major (`tiles[y * width + x]`). In world space, grid `y` maps to `z`.
 - Facing: `0` north (−y), `1` east (+x), `2` south (+y), `3` west (−x). After a move, a unit faces along its last step.
 - Movement is 4-directional BFS, one step per tile. A step is legal when the height difference, **up or down**, is at most `jump` (in tiers). Water isn't walkable.
-- Units can pass through allies (same `ownerId`) but not stop on them, and cannot pass through other owners' units.
-- Map templates in `src/data/maps/` are rows of characters: `'0'`–`'9'` is height in tiers, `'~'` is water. Land terrain comes from height for now.
+- Units can pass through allies (same side: all player slots are one side, `ownerId: 'enemy'` is the other) but not stop on them, and cannot pass through enemies. Downed units block like living ones; graves don't block.
+- Map templates in `src/data/maps/` are rows of characters: `'0'`–`'9'` is height in tiers, `'~'` is water. Land terrain comes from height for now. Spawns are listed per side (`player`, `enemy`).
+
+**Battle rules as built (settled in M2; tune later):**
+- **CT carry** (§5.2): after a turn, `ct` is set to 0 if the unit both moved and acted, 60 if it did one, 80 if it did neither. Overflow above 100 is dropped, so a unit can't be ready again without the clock ticking.
+- **Phase order:** when player and enemy units become ready on the same tick, the player phase runs first; the enemy phase then runs without further ticks. Within a phase, units are ordered by CT (highest first), then id.
+- **Statuses** lose a turn when their unit's turn starts and expire at 0. M2 has `guard` (def ×1.5 until the unit's next turn) and `pinned` (move −2).
+- **Hit chance:** physical = `clamp(90 + facing bonus − target evade, 5, 100)`; magic and non-hostile abilities always land. One roll per target decides all of that ability's effects on it. Status effects then roll their own `chance`.
+- **Damage:** `max(1, round((stat * power − defence) * (1 + height bonus) * (1 + facing bonus)))`, with `def` against `atk` effects and `res` against `mag`. Downed units can't be damaged, healed or given statuses; only `revive` affects them.
+- **Downed:** the 3-turn counter ticks each time the downed unit's CT would make it ready. At 0 it dies and becomes a grave. Rout ends when one side has no standing (non-downed) units.
+- **Knockback** moves the target straight away from the attacker and stops at the board edge, water, any unit, or any higher tile. Drops are allowed (no fall damage yet).
+- **Jobs** have an `attack` field (their basic attack, always usable). Rank gating is deferred to M4: until then, every ability in a job's action set is usable.
+- **Effects implemented:** `damage`, `heal`, `status`, `push`, `revive`, and `cleanse` (new: removes all statuses). `terrain`, `ct` and `summon` will be added when an ability needs them.
+- **Not yet:** line of sight (the `los` flag is ignored), charge-time spells (M5), MP regeneration.
 
 ## 9. Art, audio and assets
 
@@ -349,6 +361,8 @@ These are starting points I believe are CC0. **Check the license file in every d
 - Each enemy archetype has its own weight preset (berserker, coward, healer, sniper, boss).
 - Budget: < 50ms per enemy turn on a 20×20 map. Prune options with movement range first.
 - The same AI controls disconnected players' units, using a "cautious ally" preset.
+- **As built (M2):** only the `berserker` preset exists, with weights for damage, kills and healing; damage to its own side counts double against a plan. Danger and objective terms arrive with the presets that need them. With nothing in reach it walks toward the nearest foe. Planning takes under 10ms on the 12×12 meadow.
+- **Known behaviour:** when two berserker sides meet, the side that walks into range first usually loses. In 100 AI-vs-AI meadow battles the side moving second won 97–100% of the time. A human player can exploit this by holding position.
 
 ## 11. Persistence & deploy
 - **Saves:** `localStorage['hexbound:profile']` holds meta unlocks, name and profile ID. `localStorage['hexbound:run']` holds the host's current run state plus seed, autosaved after every battle and node. Wrap every access in try/catch.
