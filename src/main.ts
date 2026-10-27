@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { createScene } from './render/scene';
+import { mountLobby } from './ui/lobby';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
+const uiRoot = document.querySelector<HTMLElement>('#ui')!;
 
 const view = createScene(canvas);
 
@@ -14,3 +16,5 @@ view.scene.add(cube);
 view.onFrame = (dt) => {
   cube.rotation.y += dt * 0.8;
 };
+
+mountLobby(uiRoot);
