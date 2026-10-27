@@ -304,6 +304,13 @@ function applyIntent(state: GameState, intent: Intent, rng: Rng):
 
 **Rule:** abilities never contain custom code. If a new ability needs a new behavior, add a new `Effect` type to the pipeline. This keeps the 15 hybrids and their combos cheap to build.
 
+**Grid and movement conventions (settled in M1):**
+- Grid coordinates are `{ x, y }`, stored row-major (`tiles[y * width + x]`). In world space, grid `y` maps to `z`.
+- Facing: `0` north (−y), `1` east (+x), `2` south (+y), `3` west (−x). After a move, a unit faces along its last step.
+- Movement is 4-directional BFS, one step per tile. A step is legal when the height difference, **up or down**, is at most `jump` (in tiers). Water isn't walkable.
+- Units can pass through allies (same `ownerId`) but not stop on them, and cannot pass through other owners' units.
+- Map templates in `src/data/maps/` are rows of characters: `'0'`–`'9'` is height in tiers, `'~'` is water. Land terrain comes from height for now.
+
 ## 9. Art, audio and assets
 
 ### 9.1 Visual target
