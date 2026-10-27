@@ -4,7 +4,7 @@ One file per decision, numbered in the order they were made. `docs/DESIGN.md` is
 
 **Write one when** you settle something the spec doesn't say, interpret something it says ambiguously, or change it. Use [`0000-template.md`](0000-template.md). Keep it short.
 
-**Status** is `Accepted`, `Superseded by NNNN` or `Deprecated`. Don't edit an accepted decision's substance; write a new record that supersedes it, and update `DESIGN.md` if the spec changes.
+**Status** is `Accepted`, `Temporary` (a dev aid to remove later), `Superseded by NNNN` or `Deprecated`. Don't edit an accepted decision's substance; write a new record that supersedes it, and update `DESIGN.md` if the spec changes.
 
 | # | Decision | Milestone |
 |---|---|---|
@@ -21,3 +21,4 @@ One file per decision, numbered in the order they were made. `docs/DESIGN.md` is
 | [0011](0011-hazards-statuses-and-traps.md) | Hazards, new statuses and traps | M4 |
 | [0012](0012-passives-reactions-and-first-hybrids.md) | Passives, reactions and the first hybrid kits | M4 |
 | [0013](0013-ignite-combo.md) | Ignite combo rules | M4 |
+| [0014](0014-small-test-battles.md) | Temporary: quick 2v2 test battles on a half-size map | M4 |

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ABILITIES } from '../src/data/abilities';
 import { JOBS } from '../src/data/jobs';
+import { glade } from '../src/data/maps/glade';
+import { meadow } from '../src/data/maps/meadow';
+import { gridFromRows, tileAt } from '../src/rules/grid';
 
 // Content is pure data, so a typo only shows up at runtime. Catch it here.
 describe('job and ability data', () => {
@@ -27,5 +30,14 @@ describe('job and ability data', () => {
       if (a.kind === 'combo') expect(a.trigger).toBeDefined();
       if (a.kind === 'ultimate') expect(a.cost?.resolve).toBe(100);
     }
+  });
+});
+
+describe('map templates', () => {
+  it.each([meadow, glade])('$id has distinct, walkable spawn tiles', (map) => {
+    const grid = gridFromRows(map.rows);
+    const all = [...map.spawns.player, ...map.spawns.enemy];
+    for (const p of all) expect(tileAt(grid, p)?.walkable).toBe(true);
+    expect(new Set(all.map((p) => `${p.x},${p.y}`)).size).toBe(all.length);
   });
 });
