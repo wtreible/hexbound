@@ -373,12 +373,7 @@ body {
 }
 
 .camp {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  padding: 16px;
-  pointer-events: auto;
-  background: rgb(43 38 32 / 0.92);
+  display: block;
 }
 
 .camp-header {
@@ -475,4 +470,280 @@ body {
 .camp-card .error {
   color: #8a2f22;
   font-size: 0.8rem;
+}
+
+/* --- Run screens --- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 16px;
+  pointer-events: auto;
+  background: rgb(43 38 32 / 0.94);
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: center;
+  gap: 12px;
+}
+
+.screen button {
+  font: inherit;
+  padding: 5px 14px;
+  border: 1px solid var(--gold);
+  background: #d9c79e;
+  cursor: pointer;
+}
+
+.screen button.primary {
+  background: #f0dca8;
+  font-weight: bold;
+}
+
+.screen button.subtle {
+  font-size: 0.8rem;
+  background: transparent;
+  margin-top: 8px;
+}
+
+.screen button:disabled {
+  background: #cfc9bb;
+  border-color: #a8a294;
+  color: #8d877a;
+  cursor: default;
+}
+
+.screen h2,
+.screen h3 {
+  margin: 0 0 8px;
+  letter-spacing: 0.06em;
+}
+
+.screen .hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.title-screen {
+  align-content: center;
+}
+
+.title-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  min-width: 280px;
+  text-align: center;
+}
+
+.title-panel h1 {
+  margin: 0;
+  letter-spacing: 0.08em;
+}
+
+.title-panel .tagline {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.draft-panel,
+.recruit-panel,
+.results-panel {
+  width: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.draft-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.draft-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+}
+
+.draft-row input,
+.draft-row select {
+  font: inherit;
+  min-width: 0;
+}
+
+.map-panel {
+  width: min(960px, 100%);
+}
+
+.run-map {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.run-map .edge {
+  stroke: #a8946a;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.run-map .edge.travelled {
+  stroke: var(--gold);
+  stroke-dasharray: none;
+  stroke-width: 3;
+}
+
+.run-map .node circle {
+  fill: #e9dcc0;
+  stroke: #a8946a;
+  stroke-width: 2;
+}
+
+.run-map .node text {
+  text-anchor: middle;
+  font-size: 16px;
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+.run-map .node.boss circle {
+  fill: #e6c9b8;
+}
+
+.run-map .node.visited circle {
+  fill: #b9ab8c;
+}
+
+.run-map .node.here circle {
+  stroke: #3a2f22;
+  stroke-width: 3;
+}
+
+.run-map .node.open {
+  cursor: pointer;
+}
+
+.run-map .node.open circle {
+  fill: #f0dca8;
+  stroke: var(--gold);
+  stroke-width: 4;
+  animation: node-pulse 1.4s ease-in-out infinite;
+}
+
+.run-map .act-label {
+  text-anchor: middle;
+  font-size: 13px;
+  fill: var(--muted);
+  letter-spacing: 0.1em;
+}
+
+@keyframes node-pulse {
+  50% { stroke-width: 7; }
+}
+
+.map-panel .legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.squad-panel {
+  width: min(320px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: flex-start;
+}
+
+.squad-row {
+  display: grid;
+  grid-template-columns: 1fr 70px auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.squad-row .track {
+  height: 8px;
+  background: #1d1913;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.squad-row .fill {
+  height: 100%;
+  background: #7fb35a;
+}
+
+.squad-row .value {
+  font-size: 0.75rem;
+}
+
+.recruit-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.recruit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recruit-card .name {
+  font-weight: bold;
+}
+
+.recruit-card .job {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.shop-panel,
+.shrine-panel {
+  width: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shop-row {
+  display: grid;
+  grid-template-columns: 9em 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-row .name {
+  font-weight: bold;
+}
+
+.shop-panel .error,
+.camp-header .error {
+  color: #8a2f22;
+  font-size: 0.85rem;
+}
+
+.shrine-panel .result {
+  font-style: italic;
+}
+
+.timeline .objective {
+  font-size: 0.8rem;
+  max-width: 220px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #c2b28e;
+}
+
+.timeline .entry.cast {
+  color: #6a3fa0;
+  font-style: italic;
 }

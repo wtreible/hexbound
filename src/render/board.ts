@@ -15,7 +15,7 @@ const TOP_COLORS: Record<TerrainId, number> = {
   water: 0x4f7486,
 };
 
-export type HighlightKind = 'reach' | 'pass' | 'path' | 'range' | 'area' | 'facing';
+export type HighlightKind = 'reach' | 'pass' | 'path' | 'range' | 'area' | 'facing' | 'exit' | 'hold' | 'cast';
 
 const HIGHLIGHT_COLORS: Record<HighlightKind, number> = {
   reach: 0x5aa0e0,
@@ -24,6 +24,9 @@ const HIGHLIGHT_COLORS: Record<HighlightKind, number> = {
   range: 0xe0905a,
   area: 0xe04a3a,
   facing: 0xf0e0b0,
+  exit: 0x5fbf6a,
+  hold: 0xe0b84a,
+  cast: 0x9a6ad0,
 };
 
 // Hazard markers: oil and fire cover the tile; traps and mines are small discs.
@@ -89,6 +92,9 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
     range: overlayMaterial('range'),
     area: overlayMaterial('area'),
     facing: overlayMaterial('facing'),
+    exit: overlayMaterial('exit'),
+    hold: overlayMaterial('hold'),
+    cast: overlayMaterial('cast'),
   };
 
   grid.tiles.forEach((tile, i) => {

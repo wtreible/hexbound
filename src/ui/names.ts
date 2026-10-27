@@ -15,4 +15,7 @@ export const STATUS_NAMES: Record<StatusId, string> = {
   haste: 'Haste',
   veil: 'Veil',
   poison: 'Poison',
+  blind: 'Blind',
+  silence: 'Silence',
+  regen: 'Regen',
 };

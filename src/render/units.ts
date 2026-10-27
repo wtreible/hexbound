@@ -14,6 +14,7 @@ export const OWNER_COLORS: Record<string, number> = {
   p2: 0x5f9a5a,
   p3: 0xc29a3e,
   p4: 0x8a62a8,
+  npc: 0xd9c79e,
   enemy: 0xb8574f,
 };
 const RING_SELECTED = 0xffffff;
@@ -119,10 +120,10 @@ export function createUnits(scene: THREE.Object3D, grid: Grid): UnitsView {
         const m = meshFor(u);
         m.root.position.copy(tileCenter(grid, u.pos));
         m.figure.rotation.y = facingAngle(u.facing);
-        const downed = u.downedTurns !== undefined;
-        m.figure.visible = !u.dead;
+        const downed = u.downedRounds !== undefined;
+        m.figure.visible = !u.dead && !u.escaped;
         m.grave.visible = !!u.dead;
-        m.bar.sprite.visible = !u.dead;
+        m.bar.sprite.visible = !u.dead && !u.escaped;
         // Downed units lie on their back, greyed out.
         m.figure.rotation.x = downed ? -Math.PI / 2 : 0;
         m.figure.position.y = downed ? 0.25 : 0;

@@ -1,92 +1,77 @@
 import { JOBS } from '../data/jobs';
-import {
-  availableJobs,
-  grantJp,
-  job,
-  passiveOptions,
-  rankOf,
-  secondaryOptions,
-  setLoadout,
-  ultimateOptions,
-  type Loadout,
-} from '../rules/jobs';
+import { canEquip, GEAR_SLOTS, item } from '../rules/items';
+import { availableJobs, effectiveStats, job, passiveOptions, rankOf, secondaryOptions, ultimateOptions, type Loadout } from '../rules/jobs';
+import { changeLoadout, debugJp, equip, rest, type RunState } from '../rules/run';
 import type { Unit } from '../rules/types';
 import { OWNER_COLORS } from '../render/units';
 import { rankLine } from './actionMenu';
+import { button, cssColor, el, screen } from './dom';
 
-// Camp between battles (M4 test harness; the full Camp node arrives with the
-// run in M5). Change each unit's job, secondary, passive and ultimate, and
-// grant debug JP to test progression quickly.
+// Camp node (docs/DESIGN.md §5.1): change each unit's job, secondary, passive,
+// ultimate and gear, and rest once to heal half of everyone's max HP. A debug
+// JP button appears in dev builds or with ?debug, for testing progression.
 
 export const DEBUG_JP = 100;
+const SHOW_DEBUG = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
 
-export type CampView = { dispose(): void };
+const SLOT_NAMES = { weapon: 'Weapon', armor: 'Armor', accessory: 'Accessory' } as const;
 
-export type CampOptions = {
-  squad: Unit[];
-  battlesWon: number;
-  /** Shown at the top, e.g. after the squad was wiped out. */
-  notice?: string;
-  onChange(squad: Unit[]): void;
-  onStart(): void;
-};
+export function mountCamp(root: HTMLElement, initial: RunState, opts: { onChange(run: RunState): void; onLeave(run: RunState): void }) {
+  let run = initial;
+  const s = screen(root, 'camp');
 
-const el = (tag: string, className: string, text?: string) => {
-  const e = document.createElement(tag);
-  e.className = className;
-  if (text !== undefined) e.textContent = text;
-  return e;
-};
-
-const cssColor = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
-
-export function mountCamp(appRoot: HTMLElement, opts: CampOptions): CampView {
-  let squad = opts.squad;
-  const root = el('div', 'camp');
-  appRoot.appendChild(root);
-
-  const update = (i: number, next: Unit) => {
-    squad = squad.map((u, j) => (j === i ? next : u));
-    opts.onChange(squad);
+  const apply = (r: RunState | { error: string }, errorEl: HTMLElement) => {
+    if ('error' in r) {
+      errorEl.textContent = r.error;
+      return;
+    }
+    run = r;
+    opts.onChange(run);
     render();
   };
 
   const select = (label: string, value: string, options: { id: string; name: string }[], none: boolean, onPick: (id: string) => void) => {
     const wrap = el('label', 'field');
     wrap.append(el('span', 'field-label', label));
-    const s = document.createElement('select');
-    if (none) s.append(new Option('None', ''));
-    for (const o of options) s.append(new Option(o.name, o.id));
-    s.value = value;
-    s.disabled = options.length === 0 && none;
-    s.addEventListener('change', () => onPick(s.value));
-    wrap.append(s);
+    const sel = el('select');
+    if (none) sel.append(new Option('None', ''));
+    for (const o of options) sel.append(new Option(o.name, o.id));
+    sel.value = value;
+    sel.disabled = options.length === 0 && none && !value;
+    sel.addEventListener('change', () => onPick(sel.value));
+    wrap.append(sel);
     return wrap;
   };
 
-  const card = (u: Unit, i: number) => {
+  const card = (u: Unit) => {
     const c = el('div', 'panel camp-card');
     c.style.borderTop = `4px solid ${cssColor(OWNER_COLORS[u.ownerId] ?? 0x999999)}`;
     c.append(el('div', 'name', `${u.name} · ${u.ownerId}`), el('div', 'job', `${job(u.job).name} · ${rankLine(u, u.job)}`));
-
     const error = el('div', 'error');
-    const apply = (patch: Partial<Loadout>) => {
-      const loadout: Loadout = { job: u.job, secondary: u.secondary, passive: u.passive, ultimate: u.ultimate, ...patch };
+
+    const loadout = (patch: Partial<Loadout>) => {
+      const next: Loadout = { job: u.job, secondary: u.secondary, passive: u.passive, ultimate: u.ultimate, ...patch };
       // A job can't be its own secondary: switching into it clears the slot.
-      if (loadout.secondary === loadout.job) loadout.secondary = undefined;
-      for (const k of ['secondary', 'passive', 'ultimate'] as const) if (!loadout[k]) delete loadout[k];
-      const r = setLoadout(u, loadout);
-      if ('error' in r) error.textContent = r.error;
-      else update(i, r);
+      if (next.secondary === next.job) next.secondary = undefined;
+      for (const k of ['secondary', 'passive', 'ultimate'] as const) if (!next[k]) delete next[k];
+      apply(changeLoadout(run, u.id, next), error);
     };
 
     const jobs = availableJobs(u).map((j) => ({ id: j.id, name: j.tier > 1 ? `★ ${j.name}` : j.name }));
     c.append(
-      select('Job', u.job, jobs, false, (id) => apply({ job: id })),
-      select('Secondary', u.secondary ?? '', secondaryOptions(u).map((j) => ({ id: j.id, name: j.name })), true, (id) => apply({ secondary: id || undefined })),
-      select('Passive', u.passive ?? '', passiveOptions(u).map((a) => ({ id: a.id, name: a.name })), true, (id) => apply({ passive: id || undefined })),
-      select('Ultimate', u.ultimate ?? '', ultimateOptions(u).map((a) => ({ id: a.id, name: a.name })), true, (id) => apply({ ultimate: id || undefined })),
+      select('Job', u.job, jobs, false, (id) => loadout({ job: id })),
+      select('Secondary', u.secondary ?? '', secondaryOptions(u).map((j) => ({ id: j.id, name: j.name })), true, (id) => loadout({ secondary: id || undefined })),
+      select('Passive', u.passive ?? '', passiveOptions(u).map((a) => ({ id: a.id, name: a.name })), true, (id) => loadout({ passive: id || undefined })),
+      select('Ultimate', u.ultimate ?? '', ultimateOptions(u).map((a) => ({ id: a.id, name: a.name })), true, (id) => loadout({ ultimate: id || undefined })),
     );
+
+    // Gear: what's equipped plus anything in the stash this unit can use.
+    for (const slot of GEAR_SLOTS) {
+      const current = u.gear?.[slot];
+      const options = [...new Set(run.stash)].filter((id) => canEquip(u, id, slot)).map((id) => ({ id, name: `${item(id).name} (${item(id).description})` }));
+      if (current) options.unshift({ id: current, name: `${item(current).name} (${item(current).description})` });
+      c.append(select(SLOT_NAMES[slot], current ?? '', options, true, (id) => apply(equip(run, u.id, slot, id || null), error)));
+    }
 
     // JP in every job the unit has touched.
     const jp = el('div', 'jp-list');
@@ -96,30 +81,25 @@ export function mountCamp(appRoot: HTMLElement, opts: CampOptions): CampView {
       const rank = rankOf(u, j.id);
       jp.append(el('span', rank >= 3 ? 'jp mastered' : 'jp', `${j.name} ${rank >= 3 ? '★' : `R${rank}`} ${amount}`));
     }
-    c.append(jp);
-
-    const debug = document.createElement('button');
-    debug.className = 'debug';
-    debug.textContent = `+${DEBUG_JP} JP (debug)`;
-    debug.addEventListener('click', () => update(i, grantJp(u, DEBUG_JP).unit));
-    c.append(debug, error);
+    c.append(jp, el('div', 'job', `HP ${u.hp}/${effectiveStats(u).hp} · Lv ${u.level}`));
+    if (SHOW_DEBUG) c.append(button(`+${DEBUG_JP} JP (debug)`, () => apply(debugJp(run, u.id, DEBUG_JP), error), { className: 'debug' }));
+    c.append(error);
     return c;
   };
 
   const render = () => {
     const header = el('div', 'panel camp-header');
-    header.append(el('h2', '', 'Camp'), el('div', 'job', `Battles won: ${opts.battlesWon}`));
-    if (opts.notice) header.append(el('div', 'notice', opts.notice));
-    const start = document.createElement('button');
-    start.className = 'start';
-    start.textContent = 'Start battle';
-    start.addEventListener('click', () => opts.onStart());
-    header.append(start);
+    header.append(
+      el('h2', '', 'Camp'),
+      el('div', 'job', `Change jobs and gear, or rest to heal half of everyone's HP. Gold ${run.gold} · Stash ${run.stash.length}`),
+      button(run.camp?.rested ? 'Rested' : 'Rest', () => apply(rest(run), header), { className: 'start', disabled: !!run.camp?.rested }),
+      button('Leave camp', () => opts.onLeave(run), { className: 'start' }),
+    );
     const cards = el('div', 'camp-cards');
-    squad.forEach((u, i) => cards.append(card(u, i)));
-    root.replaceChildren(header, cards);
+    for (const u of run.squad) cards.append(card(u));
+    s.replaceChildren(header, cards);
   };
 
   render();
-  return { dispose: () => root.remove() };
+  return { dispose: () => s.remove() };
 }

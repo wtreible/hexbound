@@ -1,3 +1,4 @@
+import { itemAbilities } from '../rules/items';
 import { abilityEntries, canAfford, effectiveStats, job, jobOf, RANK_JP, rankOf, type AbilitySource } from '../rules/jobs';
 import type { ActiveUnit, Unit } from '../rules/types';
 import { OWNER_COLORS } from '../render/units';
@@ -17,11 +18,11 @@ export type Action = {
   label: string;
   detail: string;
   disabled: boolean;
-  section: 'move' | AbilitySource | 'wait';
+  section: 'move' | AbilitySource | 'item' | 'wait';
 };
 
-/** The unit's actions in menu order: Move, basic attack, primary set, secondary set, ultimate, Wait. */
-export function listActions(unit: Unit, entry: ActiveUnit): Action[] {
+/** The unit's actions in menu order: Move, basic attack, primary set, secondary set, ultimate, items, Wait. */
+export function listActions(unit: Unit, entry: ActiveUnit, inventory: Record<string, number> = {}): Action[] {
   return [
     { key: 'move', label: 'Move', detail: '', disabled: entry.moved, section: 'move' },
     ...abilityEntries(unit).map((e): Action => {
@@ -35,6 +36,13 @@ export function listActions(unit: Unit, entry: ActiveUnit): Action[] {
         section: e.source,
       };
     }),
+    ...itemAbilities(inventory).map((i): Action => ({
+      key: { abilityId: i.ability.id },
+      label: i.ability.name,
+      detail: `×${i.count}`,
+      disabled: entry.acted,
+      section: 'item',
+    })),
     { key: 'wait', label: 'Wait', detail: '', disabled: false, section: 'wait' },
   ];
 }
@@ -46,7 +54,7 @@ export function sameAction(a: ActionKey, b: ActionKey | null): boolean {
 }
 
 export type ActionMenuView = {
-  show(unit: Unit, entry: ActiveUnit, picked: ActionKey | null): void;
+  show(unit: Unit, entry: ActiveUnit, picked: ActionKey | null, inventory: Record<string, number>): void;
   hide(): void;
 };
 
@@ -83,7 +91,7 @@ export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) =>
   };
 
   return {
-    show(unit, entry, picked) {
+    show(unit, entry, picked, inventory) {
       const stats = effectiveStats(unit);
       const j = jobOf(unit);
 
@@ -97,10 +105,11 @@ export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) =>
         primary: j.name,
         secondary: unit.secondary ? job(unit.secondary).name : '',
         ultimate: 'Ultimate',
+        item: 'Items',
       };
       const actions = el('div', 'panel actions');
       let lastSection: Action['section'] | null = null;
-      listActions(unit, entry).forEach((action, i) => {
+      listActions(unit, entry, inventory).forEach((action, i) => {
         const title = sectionTitle[action.section];
         if (title && action.section !== lastSection) actions.appendChild(el('div', 'section', title));
         lastSection = action.section;

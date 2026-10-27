@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { faceToward, planTurn } from '../rules/ai';
 import { areaTiles, previewAct, targetTiles, type TargetPreview } from '../rules/combat';
 import { indexOf, neighbors, pathTo, posOf, reachable, tileAt, type Reach } from '../rules/grid';
+import { item } from '../rules/items';
 import { ability, effectiveStats, jobOf } from '../rules/jobs';
 import { HAZARD_NAMES, STATUS_NAMES } from './names';
 import { applyIntent } from '../rules/reducer';
 import type { Rng } from '../rules/rng';
 import type { GameEvent, GameState, Intent, Unit } from '../rules/types';
-import { findUnit, isEnemy, unitAt } from '../rules/units';
+import { findUnit, isEnemy, isNpc, unitAt } from '../rules/units';
+import { describe as describeObjective } from '../rules/objectives';
 import { createBoard, type HighlightKind } from '../render/board';
 import { createFx } from '../render/fx';
 import type { SceneHandle } from '../render/scene';
@@ -31,9 +33,19 @@ type Mode =
   | { kind: 'over' };
 
 const ENEMY_STEP_MS = 280;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Rounds a downed unit has left, counting the current one. */
+const roundsText = (left: number) => (left === 0 ? 'last round' : `${left + 1} rounds`);
 export type BattleView = { dispose(): void };
+
+export type BattleOptions = {
+  /** Shown as an opening banner, e.g. the encounter name. */
+  title?: string;
+  /** The AI plays the player's units too (quick test mode). */
+  autoPlay?: boolean;
+  /** Multiplies the pace of pauses and animations. Default 1. */
+  speed?: number;
+};
 
 /**
  * Mounts a battle on the shared scene and UI root. `onDone` gets the final
@@ -45,7 +57,10 @@ export function mountBattle(
   initial: GameState,
   rng: Rng,
   onDone: (final: GameState) => void,
+  opts: BattleOptions = {},
 ): BattleView {
+  const speed = opts.speed ?? 1;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms / speed));
   let state = initial;
   let mode: Mode = { kind: 'busy' };
   let hovered: number | null = null;
@@ -77,7 +92,8 @@ export function mountBattle(
 
   const unit = (id: string) => findUnit(state.units, id)!;
   const activeEntry = (id: string) => (state.turn.phase === 'over' ? undefined : state.turn.active.find((a) => a.unitId === id));
-  const activeIds = () => (state.turn.phase === 'player' ? state.turn.active.map((a) => a.unitId) : []);
+  /** Units the player can command right now (not an escorted NPC). */
+  const activeIds = () => (state.turn.phase === 'player' ? state.turn.active.map((a) => a.unitId).filter((id) => !isNpc(unit(id))) : []);
   const selectedId = () => ('unitId' in mode ? mode.unitId : null);
 
   /** Where a freshly selected unit starts: Move until it has moved, then facing once it has done both. */
@@ -91,7 +107,7 @@ export function mountBattle(
     const id = selectedId();
     const entry = id ? activeEntry(id) : undefined;
     if (!id || !entry || mode.kind === 'busy' || mode.kind === 'over') return;
-    const action = listActions(unit(id), entry).find((a) => sameAction(a.key, key));
+    const action = listActions(unit(id), entry, state.inventory).find((a) => sameAction(a.key, key));
     if (!action || action.disabled) return;
     if (mode.kind === 'facing') units.setFacing(id, unit(id).facing);
     if (key === 'move') mode = { kind: 'move', unitId: id };
@@ -104,7 +120,7 @@ export function mountBattle(
 
   let reachCache: { key: string; reach: Reach } | null = null;
   const reachFor = (u: Unit): Reach => {
-    const key = JSON.stringify([u.id, state.units.map((x) => [x.pos, x.dead, x.downedTurns])]);
+    const key = JSON.stringify([u.id, state.units.map((x) => [x.pos, x.dead, x.downedRounds])]);
     if (reachCache?.key !== key) reachCache = { key, reach: reachable(grid, state.units, u, effectiveStats(u)) };
     return reachCache.reach;
   };
@@ -119,7 +135,12 @@ export function mountBattle(
   };
 
   const refresh = () => {
+    // Standing marks first (exits, hold ground, pending casts); the current mode draws over them.
     const highlights = new Map<number, HighlightKind>();
+    const marks = describeObjective(state);
+    for (const p of marks.exits) highlights.set(indexOf(grid, p), 'exit');
+    for (const p of marks.hold) highlights.set(indexOf(grid, p), 'hold');
+    for (const c of state.casts) for (const p of c.tiles) highlights.set(indexOf(grid, p), 'cast');
     const m = mode;
     if (m.kind === 'move') {
       const reach = reachFor(unit(m.unitId));
@@ -149,7 +170,7 @@ export function mountBattle(
     const entry = sel ? activeEntry(sel) : undefined;
     const picked: ActionKey | null =
       m.kind === 'move' ? 'move' : m.kind === 'facing' ? 'wait' : m.kind === 'target' ? { abilityId: m.abilityId } : null;
-    if (sel && entry) menu.show(unit(sel), entry, picked);
+    if (sel && entry) menu.show(unit(sel), entry, picked, state.inventory);
     else menu.hide();
     renderHud();
   };
@@ -166,7 +187,7 @@ export function mountBattle(
       if (u) {
         const s = effectiveStats(u);
         const statuses = u.statuses.map((x) => STATUS_NAMES[x.id]).join(', ');
-        const downed = u.downedTurns !== undefined ? ` · DOWNED (${u.downedTurns} turns)` : '';
+        const downed = u.downedRounds !== undefined ? ` · DOWNED (${roundsText(u.downedRounds)} to revive)` : '';
         const owner = isEnemy(u) ? ' (enemy)' : ` (${u.ownerId})`;
         lines.push({ text: `${u.name} · ${jobOf(u).name}${owner}${downed}${isEnemy(u) ? '' : ` · ${rankLine(u, u.job)}`}` });
         lines.push({ text: `HP ${u.hp}/${s.hp} · MP ${u.mp}/${s.mp} · Resolve ${u.resolve} · CT ${u.ct} · Move ${s.move} · Jump ${s.jump}${statuses ? ` · ${statuses}` : ''}` });
@@ -255,7 +276,7 @@ export function mountBattle(
           impacts = true;
           break;
         case 'down-tick':
-          popAt(e.unitId, `${e.turnsLeft} turns left`, 'info');
+          popAt(e.unitId, `${roundsText(e.roundsLeft)} to revive`, 'info');
           break;
         case 'mp':
           if (e.amount) popAt(e.unitId, `${e.amount > 0 ? '+' : ''}${e.amount} MP`, 'info');
@@ -281,6 +302,29 @@ export function mountBattle(
         case 'combo':
           await showBanner(ability(e.comboId).name + '!', 600);
           break;
+        case 'cast':
+          popAt(e.unitId, `Charging ${ability(e.abilityId).name}`, 'info');
+          await sleep(300);
+          break;
+        case 'cast-resolved':
+          popAt(e.unitId, `${ability(e.abilityId).name}!`, 'info');
+          await sleep(300);
+          break;
+        case 'cast-fizzled':
+          popAt(e.unitId, `${ability(e.abilityId).name} fizzles`, 'info');
+          break;
+        case 'held':
+          await showBanner(`Ground held ${e.held}/${e.rounds}`, 600);
+          break;
+        case 'escaped':
+          popAt(e.unitId, 'Escaped!', 'info');
+          await sleep(300);
+          units.sync(state.units);
+          break;
+        case 'looted':
+          popAt(e.unitId, `Looted ${item(e.itemId).name}`, 'info');
+          await sleep(300);
+          break;
         case 'jp':
           popAt(e.unitId, `+${e.amount} JP${e.rankUp ? (e.rank >= 3 ? ' · Mastered!' : ` · Rank ${e.rank}!`) : ''}`, 'info');
           break;
@@ -292,6 +336,7 @@ export function mountBattle(
           break;
         case 'battle-over':
         case 'turn-ended':
+        case 'round':
           break;
       }
     }
@@ -320,19 +365,34 @@ export function mountBattle(
     await settle(afterUnit);
   };
 
-  /** Picks the mode for whatever phase the state is now in. */
+  /** The next unit the AI plays: enemies, an escorted NPC, or anyone in auto-play. */
+  const nextAiUnit = (): Unit | undefined => {
+    if (state.turn.phase === 'over') return undefined;
+    const active = state.turn.active.map((a) => unit(a.unitId));
+    if (state.turn.phase === 'enemy' || opts.autoPlay) return active[0];
+    return active.find(isNpc);
+  };
+
+  const aiPlan = (u: Unit) => {
+    if (isEnemy(u)) return planTurn(state, u.id, 'berserker');
+    if (isNpc(u)) return planTurn(state, u.id, 'escort', state.objective.type === 'escort' ? state.objective.exits : []);
+    return planTurn(state, u.id, 'cautious');
+  };
+
+  /** Runs AI turns, then picks the mode for the player. */
   const settle = async (preferUnit?: string) => {
-    while (state.turn.phase === 'enemy') {
-      const unitId = state.turn.active[0]!.unitId;
+    for (let next = nextAiUnit(); next; next = nextAiUnit()) {
+      const unitId = next.id;
+      const phase = state.turn.phase;
       refresh();
-      for (const intent of planTurn(state, unitId)) {
+      for (const intent of aiPlan(next)) {
         await sleep(ENEMY_STEP_MS);
         // A rejected AI intent must not stall the battle: end that unit's turn.
         if (!(await dispatch(intent))) {
           await dispatch({ type: 'wait', unitId });
           break;
         }
-        if (state.turn.phase !== 'enemy' || state.turn.active[0]?.unitId !== unitId) break;
+        if (state.turn.phase !== phase || !activeEntry(unitId)) break;
       }
     }
     if (state.turn.phase === 'over') {
@@ -356,10 +416,18 @@ export function mountBattle(
     const detail = document.createElement('p');
     detail.textContent = lost.length ? `Lost for good: ${lost.join(', ')}` : 'No one was lost.';
     const again = document.createElement('button');
-    again.textContent = 'Return to camp';
-    again.addEventListener('click', () => onDone(state));
+    again.textContent = 'Continue';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      onDone(state);
+    };
+    again.addEventListener('click', finish);
     panel.append(title, detail, again);
     uiRoot.appendChild(panel);
+    // Auto-play moves straight on after a moment.
+    if (opts.autoPlay) void sleep(1500).then(finish);
   };
 
   // Esc / right-click: drop the picked action and return to the bar.
@@ -425,7 +493,7 @@ export function mountBattle(
   // previews follow the board while the camera rotates under a still mouse.
   let pointer: PointerEvent | null = null;
   view.onFrame = (dt) => {
-    units.update(dt);
+    units.update(dt * speed);
     const i = pointer ? pickAt(pointer) : null;
     if (i !== hovered) {
       hovered = i;
@@ -492,14 +560,17 @@ export function mountBattle(
         const id = selectedId();
         const entry = id ? activeEntry(id) : undefined;
         if (index < 0 || !id || !entry) break;
-        const action = listActions(unit(id), entry)[index];
+        const action = listActions(unit(id), entry, state.inventory)[index];
         if (action) chooseAction(action.key);
       }
     }
   }, { signal });
 
   timeline.update(state);
-  void settle();
+  void (async () => {
+    if (opts.title) await showBanner(opts.title, 1400);
+    await settle();
+  })();
 
   return {
     dispose() {
