@@ -7,13 +7,16 @@ import { ability, effectiveStats, jobOf } from '../rules/jobs';
 import { HAZARD_NAMES, STATUS_NAMES } from './names';
 import { applyIntent } from '../rules/reducer';
 import type { Rng } from '../rules/rng';
-import type { GameEvent, GameState, Intent, Unit } from '../rules/types';
+import type { AbilityDef, GameEvent, GameState, Intent, Unit } from '../rules/types';
 import { findUnit, isEnemy, isNpc, unitAt } from '../rules/units';
 import { describe as describeObjective } from '../rules/objectives';
-import { createBoard, type HighlightKind } from '../render/board';
+import { createBoard, tileCenter, type HighlightKind } from '../render/board';
 import { createFx } from '../render/fx';
 import type { SceneHandle } from '../render/scene';
 import { createUnits } from '../render/units';
+import type { ClipKey, ModelLibrary } from '../render/models';
+import type { Portraits } from '../render/portraits';
+import { audio, type Sfx } from '../audio';
 import { ACTION_KEYS, listActions, mountActionMenu, rankLine, sameAction, type ActionKey } from './actionMenu';
 import { mountTimeline } from './timeline';
 
@@ -45,7 +48,20 @@ export type BattleOptions = {
   autoPlay?: boolean;
   /** Multiplies the pace of pauses and animations. Default 1. */
   speed?: number;
+  /** Character models; units fall back to capsules without them. */
+  library?: ModelLibrary | null;
+  portraits?: Portraits | null;
 };
+
+/** Which body animation and sound an ability plays. */
+function actionLook(a: AbilityDef): { clip: ClipKey; sfx: Sfx } {
+  const damages = a.effects.some((e) => e.type === 'damage');
+  if (a.tags.includes('item')) return { clip: 'item', sfx: 'page' };
+  if (a.tags.includes('bow')) return { clip: 'shoot', sfx: 'draw' };
+  if (a.tags.includes('magic')) return damages ? { clip: 'cast', sfx: 'magic' } : { clip: 'support', sfx: 'heal' };
+  if (a.tags.includes('melee') || a.tags.includes('physical')) return { clip: 'melee', sfx: 'swing' };
+  return { clip: 'item', sfx: 'whoosh' };
+}
 
 /**
  * Mounts a battle on the shared scene and UI root. `onDone` gets the final
@@ -64,6 +80,8 @@ export function mountBattle(
   let state = initial;
   let mode: Mode = { kind: 'busy' };
   let hovered: number | null = null;
+  /** The unit the camera is centred on. */
+  let focused: string | null = null;
 
   // Everything this battle adds lives under these two roots, so dispose() is just removal.
   const world = new THREE.Group();
@@ -75,14 +93,15 @@ export function mountBattle(
 
   const { grid } = state;
   const board = createBoard(world, grid);
-  const units = createUnits(world, grid);
+  const units = createUnits(world, grid, opts.library ?? null);
+  units.onStep = () => audio.play('step');
   const fx = createFx(uiRoot, view.camera, view.renderer.domElement);
   units.sync(state.units);
   board.setHazards(state.hazards);
   view.lookAt(board.center);
 
   const timeline = mountTimeline(uiRoot);
-  const menu = mountActionMenu(uiRoot, (key) => chooseAction(key));
+  const menu = mountActionMenu(uiRoot, (key) => chooseAction(key), opts.portraits ?? null);
   const hud = document.createElement('div');
   hud.className = 'panel hud';
   const banner = document.createElement('div');
@@ -165,6 +184,11 @@ export function mountBattle(
     board.setCursor(hovered !== null ? posOf(grid, hovered) : null);
 
     const sel = selectedId();
+    // Keep the unit in play centred, clear of the command bar.
+    if (sel && sel !== focused) {
+      focused = sel;
+      view.focus(tileCenter(grid, unit(sel).pos));
+    }
     units.setRings(sel, activeIds());
     board.setSelection(sel ? unit(sel).pos : null);
     const entry = sel ? activeEntry(sel) : undefined;
@@ -246,19 +270,28 @@ export function mountBattle(
         case 'faced':
           units.setFacing(e.unitId, e.facing);
           break;
-        case 'acted':
+        case 'acted': {
+          const look = actionLook(ability(e.abilityId));
           popAt(e.unitId, ability(e.abilityId).name, 'info');
-          await sleep(250);
+          void units.act(e.unitId, look.clip);
+          audio.play(look.sfx);
+          // Let the swing or cast land before the numbers appear.
+          await sleep(450);
           break;
+        }
         case 'damaged':
           popAt(e.unitId, String(e.amount), 'damage');
+          void units.act(e.unitId, 'hit');
+          audio.play('hit');
           impacts = true;
           break;
         case 'missed':
           popAt(e.unitId, 'Miss', 'miss');
+          audio.play('whoosh');
           impacts = true;
           break;
         case 'healed':
+          audio.play('heal');
           popAt(e.unitId, `+${e.amount}`, 'heal');
           impacts = true;
           break;
@@ -271,6 +304,7 @@ export function mountBattle(
         case 'downed':
         case 'revived':
         case 'died':
+          if (e.type === 'downed') audio.play('down');
           units.sync(state.units);
           popAt(e.unitId, e.type === 'downed' ? 'Down!' : e.type === 'revived' ? 'Revived' : 'Lost', 'info');
           impacts = true;
@@ -322,6 +356,7 @@ export function mountBattle(
           units.sync(state.units);
           break;
         case 'looted':
+          audio.play('coins');
           popAt(e.unitId, `Looted ${item(e.itemId).name}`, 'info');
           await sleep(300);
           break;
@@ -335,6 +370,12 @@ export function mountBattle(
           await showBanner(e.phase === 'player' ? 'Player Phase' : 'Enemy Phase', 700);
           break;
         case 'battle-over':
+          audio.play(e.winner === 'player' ? 'victory' : 'defeat');
+          for (const u of state.units) {
+            const won = isEnemy(u) === (e.winner === 'enemy');
+            if (won && !u.dead && u.downedRounds === undefined) void units.act(u.id, 'cheer');
+          }
+          break;
         case 'turn-ended':
         case 'round':
           break;
@@ -384,6 +425,8 @@ export function mountBattle(
     for (let next = nextAiUnit(); next; next = nextAiUnit()) {
       const unitId = next.id;
       const phase = state.turn.phase;
+      focused = unitId;
+      view.focus(tileCenter(grid, next.pos));
       refresh();
       for (const intent of aiPlan(next)) {
         await sleep(ENEMY_STEP_MS);
@@ -494,6 +537,7 @@ export function mountBattle(
   let pointer: PointerEvent | null = null;
   view.onFrame = (dt) => {
     units.update(dt * speed);
+    board.update(dt);
     const i = pointer ? pickAt(pointer) : null;
     if (i !== hovered) {
       hovered = i;

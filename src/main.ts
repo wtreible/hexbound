@@ -1,4 +1,11 @@
+import '@fontsource/alegreya/400.css';
+import '@fontsource/alegreya/700.css';
+import '@fontsource/cinzel/600.css';
+import '@fontsource/cinzel/700.css';
+import { audio } from './audio';
 import { glade } from './data/maps/glade';
+import { loadModels, type ModelLibrary } from './render/models';
+import { createPortraits, type Portraits } from './render/portraits';
 import { BASE_STATS } from './data/units';
 import { createScene } from './render/scene';
 import { setupBattle, type BattleSetup } from './rules/battle';
@@ -43,9 +50,14 @@ const show = (next: { dispose(): void }) => {
   current = next;
 };
 
+let library: ModelLibrary | null = null;
+let portraits: Portraits | null = null;
+
 /** Saves the run and shows whatever screen its state calls for. */
 function go(run: RunState) {
   saveRun(run);
+  const here = run.at ? node(run, run.at) : null;
+  audio.music(run.status === 'node' && here && isBattle(here.type) ? 'battle' : 'exploration');
   if (run.status === 'won' || run.status === 'lost') {
     clearRun();
     show(mountResults(uiRoot, run, () => draft()));
@@ -55,6 +67,7 @@ function go(run: RunState) {
     show(
       mountRunMap(uiRoot, run, {
         onEnter: (id) => {
+          audio.play('page');
           const r = enterNode(run, id, BASE_STATS);
           if ('error' in r) console.warn(r.error);
           else go(r);
@@ -79,10 +92,12 @@ function go(run: RunState) {
         title: label,
         autoPlay: QUICK,
         speed: QUICK ? QUICK_SPEED : 1,
+        library,
+        portraits,
       }),
     );
   } else if (n.type === 'camp') {
-    show(mountCamp(uiRoot, run, { onChange: saveRun, onLeave: (latest) => go(leaveNode(latest)) }));
+    show(mountCamp(uiRoot, run, { onChange: saveRun, onLeave: (latest) => go(leaveNode(latest)), portraits }));
   } else if (n.type === 'shop') {
     show(mountShop(uiRoot, run, { onChange: saveRun, onLeave: (latest) => go(leaveNode(latest)) }));
   } else if (n.type === 'shrine') {
@@ -96,6 +111,7 @@ function go(run: RunState) {
           else go(r);
         },
         onLeave: () => go(leaveNode(run)),
+        portraits,
       }),
     );
   }
@@ -110,6 +126,7 @@ function draft() {
 }
 
 function title() {
+  audio.music('exploration');
   const saved = loadRun();
   show(
     mountTitle(uiRoot, saved, {
@@ -119,5 +136,37 @@ function title() {
   );
 }
 
-title();
-mountLobby(uiRoot);
+// Every button clicks.
+document.addEventListener('click', (e) => {
+  if (e.target instanceof HTMLElement && e.target.closest('button')) audio.play('click');
+});
+
+// Sound toggle, top right.
+const mute = document.createElement('button');
+mute.className = 'mute-toggle';
+const label = () => (mute.textContent = audio.muted ? 'Sound off' : 'Sound on');
+label();
+mute.addEventListener('click', () => {
+  audio.setMuted(!audio.muted);
+  label();
+});
+uiRoot.appendChild(mute);
+
+// The M0 networking smoke test, until the real lobby arrives with M3.
+if (new URLSearchParams(location.search).has('net')) mountLobby(uiRoot);
+
+// Load the character models before the first screen; capsules stand in if that fails.
+const loading = document.createElement('div');
+loading.className = 'loading';
+loading.textContent = 'Loading…';
+uiRoot.appendChild(loading);
+loadModels(import.meta.env.BASE_URL)
+  .then((lib) => {
+    library = lib;
+    portraits = createPortraits(lib);
+  })
+  .catch((err) => console.warn('[models] falling back to capsules', err))
+  .finally(() => {
+    loading.remove();
+    title();
+  });

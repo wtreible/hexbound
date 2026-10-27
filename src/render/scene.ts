@@ -19,7 +19,10 @@ export type SceneHandle = {
   rotate(dir: -1 | 1): void;
   /** Step the zoom in (+1) or out (-1), clamped to the zoom steps. */
   zoom(dir: -1 | 1): void;
+  /** Jump the camera to look at a point. */
   lookAt(target: THREE.Vector3): void;
+  /** Pan smoothly to look at a point. */
+  focus(target: THREE.Vector3): void;
 };
 
 type Tween = { from: number; to: number; start: number };
@@ -39,12 +42,19 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
 
-  scene.add(new THREE.HemisphereLight(0xfff2dd, 0x4a3b2a, 1.4));
+  // Warm sky light, a key light from above, and a soft fill so faces read from the camera side.
+  scene.add(new THREE.HemisphereLight(0xfff2dd, 0x5a4b38, 1.7));
   const sun = new THREE.DirectionalLight(0xffe8c0, 1.6);
   sun.position.set(6, 12, 4);
   scene.add(sun);
+  const fill = new THREE.DirectionalLight(0xdfe6ff, 0.5);
+  fill.position.set(-4, 6, 10);
+  scene.add(fill);
 
   const target = new THREE.Vector3();
+  const goal = new THREE.Vector3();
+  /** Per-second rate the camera closes on its goal when panning. */
+  const PAN_RATE = 6;
   let step = 0; // quarter turns, unbounded so tweens always take the short way
   let azimuth: Tween = { from: Math.PI / 4, to: Math.PI / 4, start: 0 };
   let zoomIndex = 0;
@@ -100,14 +110,20 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
     },
     lookAt(v) {
       target.copy(v);
+      goal.copy(v);
+    },
+    focus(v) {
+      goal.copy(v);
     },
   };
 
   const timer = new THREE.Timer();
   renderer.setAnimationLoop((time) => {
     timer.update(time);
+    const dt = timer.getDelta();
+    target.lerp(goal, 1 - Math.exp(-dt * PAN_RATE));
     placeCamera(performance.now());
-    handle.onFrame?.(timer.getDelta());
+    handle.onFrame?.(dt);
     renderer.render(scene, camera);
   });
   return handle;

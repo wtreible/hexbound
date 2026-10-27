@@ -1,8 +1,14 @@
 import { effectiveStats, jobOf } from '../rules/jobs';
 import type { RunState } from '../rules/run';
+import type { Portraits } from '../render/portraits';
+import { portraitElement } from './actionMenu';
 import { button, el, screen } from './dom';
 
-export function mountRecruit(root: HTMLElement, run: RunState, opts: { onRecruit(id: string): void; onLeave(): void }): { dispose(): void } {
+export function mountRecruit(
+  root: HTMLElement,
+  run: RunState,
+  opts: { onRecruit(id: string): void; onLeave(): void; portraits?: Portraits | null },
+): { dispose(): void } {
   const s = screen(root, 'recruit-screen');
   const full = run.squad.length >= run.squadSize;
   const panel = el('div', 'panel recruit-panel');
@@ -15,6 +21,7 @@ export function mountRecruit(root: HTMLElement, run: RunState, opts: { onRecruit
     const st = effectiveStats(u);
     const card = el('div', 'panel recruit-card');
     card.append(
+      portraitElement(u, opts.portraits ?? null),
       el('div', 'name', u.name),
       el('div', 'job', `${jobOf(u).name} · Lv ${u.level}`),
       el('div', 'hint', `HP ${st.hp} · MP ${st.mp} · ATK ${st.atk} · MAG ${st.mag} · SPD ${st.spd}`),

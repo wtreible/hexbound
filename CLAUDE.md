@@ -10,6 +10,7 @@ Record every design decision in `docs/decisions/` as a numbered file (template a
 - `npm test` — Vitest, run before every commit
 - `npm run build` — typecheck + production build into `dist/`
 - `npm run typecheck`
+- `npm run models -- <adventurers-dir> <skeletons-dir>`: rebuild `public/models/` from the KayKit packs (see `docs/decisions/0021`)
 
 ## Layout rules
 - `src/rules/` is pure game logic: no DOM, Three.js or network imports. Must be testable in Node.

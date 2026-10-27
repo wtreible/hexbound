@@ -2,18 +2,19 @@ import { item } from '../rules/items';
 import { effectiveStats, jobOf } from '../rules/jobs';
 import { ACTS, CHOICE_ROWS, choices, goldReward, node, type NodeType, type RunState } from '../rules/run';
 import { button, el, screen } from './dom';
+import { iconSvg, NODE_ICONS } from './icons';
 
 // The run map: acts left to right, each a few rows of choices ending in a
 // boss. Click a highlighted node to travel there.
 
-export const NODE_LOOK: Record<NodeType, { icon: string; name: string }> = {
-  battle: { icon: '⚔', name: 'Battle' },
-  elite: { icon: '☠', name: 'Elite' },
-  camp: { icon: '⛺', name: 'Camp' },
-  recruit: { icon: '✚', name: 'Recruit' },
-  shop: { icon: '⚖', name: 'Shop' },
-  shrine: { icon: '✦', name: 'Shrine' },
-  boss: { icon: '♛', name: 'Boss' },
+export const NODE_LOOK: Record<NodeType, { name: string }> = {
+  battle: { name: 'Battle' },
+  elite: { name: 'Elite' },
+  camp: { name: 'Camp' },
+  recruit: { name: 'Recruit' },
+  shop: { name: 'Shop' },
+  shrine: { name: 'Shrine' },
+  boss: { name: 'Boss' },
 };
 
 const COL_W = 74;
@@ -66,10 +67,11 @@ export function mountRunMap(root: HTMLElement, run: RunState, opts: { onEnter(id
     circle.setAttribute('cx', String(x));
     circle.setAttribute('cy', String(y));
     circle.setAttribute('r', n.type === 'boss' ? '24' : '18');
-    const icon = document.createElementNS(SVG, 'text');
-    icon.setAttribute('x', String(x));
-    icon.setAttribute('y', String(y + 6));
-    icon.textContent = NODE_LOOK[n.type].icon;
+    const icon = document.createElementNS(SVG, 'path');
+    icon.setAttribute('d', NODE_ICONS[n.type]);
+    const s = n.type === 'boss' ? 1.4 : 1.1;
+    icon.setAttribute('transform', `translate(${x - 10 * s} ${y - 10 * s}) scale(${s})`);
+    icon.classList.add('icon');
     const title = document.createElementNS(SVG, 'title');
     const reward = goldReward(n);
     title.textContent = `Act ${n.act} · ${NODE_LOOK[n.type].name}${reward ? ` · ${reward} gold` : ''}`;
@@ -88,7 +90,11 @@ export function mountRunMap(root: HTMLElement, run: RunState, opts: { onEnter(id
   const mapPanel = el('div', 'panel map-panel');
   mapPanel.append(el('h2', '', 'The road'), svg);
   const legend = el('div', 'legend');
-  for (const look of Object.values(NODE_LOOK)) legend.append(el('span', '', `${look.icon} ${look.name}`));
+  for (const [type, look] of Object.entries(NODE_LOOK) as [NodeType, (typeof NODE_LOOK)[NodeType]][]) {
+    const item = el('span', 'legend-item');
+    item.append(iconSvg(type), document.createTextNode(look.name));
+    legend.append(item);
+  }
   mapPanel.append(legend);
 
   const squad = el('div', 'panel squad-panel');

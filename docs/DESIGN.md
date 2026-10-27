@@ -49,8 +49,10 @@ hexbound/
   CREDITS.md           ← every third-party asset: name, author, URL, license
   index.html
   vite.config.ts
+  scripts/             ← asset build tools (npm run models)
   public/
-    models/            ← .glb characters, props
+    models/            ← .glb characters, props, manifest.json
+    licenses/          ← licence texts shipped with third-party packs
     tiles/             ← tile textures / tile models
     audio/
   src/
@@ -337,6 +339,8 @@ These are starting points I believe are CC0. **Check the license file in every d
 - Recolor materials per job: tint the base model's material using a per-job palette in `data/jobs.ts`.
 - Swap attachments: put a weapon or hat glb on the hand or head bone (KayKit and Quaternius rigs have named bones). A hybrid uses one parent's body plus the other parent's weapon, so the combination is visible on the model.
 - Tier 3 classes get a cape or aura particle effect.
+
+**As built (M6):** see [decision 0021](decisions/0021-art-pass.md) for the models, looks, textures, sound and UI skin.
 
 ### 9.3 Asset pipeline
 - `public/models/manifest.json` maps logical keys to file paths and the bone names used for attachments.

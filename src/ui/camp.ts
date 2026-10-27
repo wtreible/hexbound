@@ -4,7 +4,8 @@ import { availableJobs, effectiveStats, job, passiveOptions, rankOf, secondaryOp
 import { changeLoadout, debugJp, equip, rest, type RunState } from '../rules/run';
 import type { Unit } from '../rules/types';
 import { OWNER_COLORS } from '../render/units';
-import { rankLine } from './actionMenu';
+import type { Portraits } from '../render/portraits';
+import { portraitElement, rankLine } from './actionMenu';
 import { button, cssColor, el, screen } from './dom';
 
 // Camp node (docs/DESIGN.md §5.1): change each unit's job, secondary, passive,
@@ -16,7 +17,11 @@ const SHOW_DEBUG = import.meta.env.DEV || new URLSearchParams(location.search).h
 
 const SLOT_NAMES = { weapon: 'Weapon', armor: 'Armor', accessory: 'Accessory' } as const;
 
-export function mountCamp(root: HTMLElement, initial: RunState, opts: { onChange(run: RunState): void; onLeave(run: RunState): void }) {
+export function mountCamp(
+  root: HTMLElement,
+  initial: RunState,
+  opts: { onChange(run: RunState): void; onLeave(run: RunState): void; portraits?: Portraits | null },
+) {
   let run = initial;
   const s = screen(root, 'camp');
 
@@ -46,7 +51,11 @@ export function mountCamp(root: HTMLElement, initial: RunState, opts: { onChange
   const card = (u: Unit) => {
     const c = el('div', 'panel camp-card');
     c.style.borderTop = `4px solid ${cssColor(OWNER_COLORS[u.ownerId] ?? 0x999999)}`;
-    c.append(el('div', 'name', `${u.name} · ${u.ownerId}`), el('div', 'job', `${job(u.job).name} · ${rankLine(u, u.job)}`));
+    const head = el('div', 'camp-head');
+    const titles = el('div');
+    titles.append(el('div', 'name', `${u.name} · ${u.ownerId}`), el('div', 'job', `${job(u.job).name} · ${rankLine(u, u.job)}`));
+    head.append(portraitElement(u, opts.portraits ?? null), titles);
+    c.append(head);
     const error = el('div', 'error');
 
     const loadout = (patch: Partial<Loadout>) => {

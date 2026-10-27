@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { posOf } from '../rules/grid';
+import { sideTexture, topTexture } from './textures';
 import type { Grid, Hazard, HazardId, Pos, TerrainId } from '../rules/types';
 
 // One height tier is half a tile tall (docs/DESIGN.md §9.1). A height-0 tile still
@@ -8,12 +9,6 @@ export const TIER = 0.5;
 const TILE_SIZE = 0.96; // the gap shows the background as grid lines
 const WATER_TOP = TIER * 0.6;
 
-const TOP_COLORS: Record<TerrainId, number> = {
-  grass: 0x7d8f4e,
-  dirt: 0xa08158,
-  stone: 0x8c8577,
-  water: 0x4f7486,
-};
 
 export type HighlightKind = 'reach' | 'pass' | 'path' | 'range' | 'area' | 'facing' | 'exit' | 'hold' | 'cast';
 
@@ -56,6 +51,8 @@ export type BoardView = {
   /** Outline the selected unit's tile. */
   setSelection(p: Pos | null): void;
   setHazards(hazards: readonly Hazard[]): void;
+  /** Animates water. */
+  update(dt: number): void;
   /** Grid index of the tile under the ray, or null. */
   pick(raycaster: THREE.Raycaster): number | null;
 };
@@ -64,15 +61,18 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
   const group = new THREE.Group();
   parent.add(group);
 
+  // Textured tops and darker banded sides (src/render/textures.ts). Water is a
+  // translucent, gently scrolling surface.
   const materials = new Map<TerrainId, THREE.Material[]>();
+  const waterTextures: THREE.Texture[] = [];
   const materialsFor = (terrain: TerrainId) => {
     let m = materials.get(terrain);
     if (!m) {
-      const top = new THREE.MeshStandardMaterial({ color: TOP_COLORS[terrain], roughness: 0.95 });
-      const side = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(TOP_COLORS[terrain]).multiplyScalar(0.55),
-        roughness: 1,
-      });
+      const map = topTexture(terrain);
+      const water = terrain === 'water';
+      if (water) waterTextures.push(map);
+      const top = new THREE.MeshStandardMaterial({ map, roughness: water ? 0.4 : 0.95, transparent: water, opacity: water ? 0.88 : 1 });
+      const side = new THREE.MeshStandardMaterial({ map: sideTexture(terrain), roughness: 1 });
       // BoxGeometry face order: +x, -x, +y, -y, +z, -z.
       m = [side, side, top, side, side, side];
       materials.set(terrain, m);
@@ -100,7 +100,11 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
   grid.tiles.forEach((tile, i) => {
     const p = posOf(grid, i);
     const top = tileTop(grid, p);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE, top, TILE_SIZE), materialsFor(tile.terrain));
+    const geometry = new THREE.BoxGeometry(TILE_SIZE, top, TILE_SIZE);
+    // Side faces repeat their texture once per tier instead of stretching it.
+    const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
+    for (const face of [0, 1, 4, 5]) for (let v = face * 4; v < face * 4 + 4; v++) uv.setY(v, uv.getY(v) * (top / TIER));
+    const mesh = new THREE.Mesh(geometry, materialsFor(tile.terrain));
     mesh.position.set(p.x, top / 2, p.y);
     mesh.userData.index = i;
     group.add(mesh);
@@ -160,6 +164,9 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
 
   return {
     center: new THREE.Vector3((grid.width - 1) / 2, 0, (grid.depth - 1) / 2),
+    update(dt) {
+      for (const t of waterTextures) t.offset.x = (t.offset.x + dt * 0.05) % 1;
+    },
     setHazards(hazards) {
       hazardGroup.clear();
       for (const h of hazards) {

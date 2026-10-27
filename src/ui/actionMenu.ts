@@ -1,7 +1,8 @@
 import { itemAbilities } from '../rules/items';
 import { abilityEntries, canAfford, effectiveStats, job, jobOf, RANK_JP, rankOf, type AbilitySource } from '../rules/jobs';
 import type { ActiveUnit, Unit } from '../rules/types';
-import { OWNER_COLORS } from '../render/units';
+import type { Portraits } from '../render/portraits';
+import { lookFor, OWNER_COLORS } from '../render/units';
 import { STATUS_NAMES } from './names';
 
 // Bottom-centre command bar for the selected active unit: avatar on the left,
@@ -60,6 +61,23 @@ export type ActionMenuView = {
 
 const cssColor = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
 
+/** The unit's model portrait on its team colour, or its job initial if models aren't loaded. */
+export function portraitElement(unit: Unit, portraits: Portraits | null): HTMLElement {
+  const color = OWNER_COLORS[unit.ownerId] ?? 0x999999;
+  const box = el('div', 'portrait');
+  box.style.background = cssColor(color);
+  const url = portraits?.get(lookFor(unit), color);
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = jobOf(unit).name;
+    box.append(img);
+  } else {
+    box.textContent = jobOf(unit).name[0]!;
+  }
+  return box;
+}
+
 const el = (tag: string, className: string, text?: string) => {
   const e = document.createElement(tag);
   e.className = className;
@@ -75,7 +93,7 @@ export function rankLine(unit: Unit, jobId: string): string {
   return next === undefined ? `Mastered · ${jp} JP` : `Rank ${rank} · ${jp}/${next} JP`;
 }
 
-export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) => void): ActionMenuView {
+export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) => void, portraits: Portraits | null = null): ActionMenuView {
   const bar = el('div', 'command-bar');
   bar.hidden = true;
   root.appendChild(bar);
@@ -95,10 +113,8 @@ export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) =>
       const stats = effectiveStats(unit);
       const j = jobOf(unit);
 
-      // Placeholder portrait until character art lands in M6.
       const avatar = el('div', 'panel avatar');
-      const portrait = el('div', 'portrait', j.name[0]);
-      portrait.style.background = cssColor(OWNER_COLORS[unit.ownerId] ?? 0x999999);
+      const portrait = portraitElement(unit, portraits);
       avatar.append(portrait, el('div', 'name', unit.name), el('div', 'job', `${j.name} · Lv ${unit.level}`), el('div', 'job', rankLine(unit, j.id)));
 
       const sectionTitle: Partial<Record<Action['section'], string>> = {
