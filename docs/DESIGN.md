@@ -36,13 +36,15 @@ This document is the source of truth for starting the build. A fresh Claude Code
 - **Tests:** Vitest for `rules/`. Rules code must be testable without a DOM or WebGL.
 - **Deploy:** GitHub Actions, using `actions/upload-pages-artifact` and `actions/deploy-pages`, on push to `main`.
 
-**Assumption to verify early (M0):** Trystero's default signaling strategy works from a `github.io` origin without extra config. If it doesn't, try another strategy (`mqtt`, `torrent`) before falling back to PeerJS.
+**Assumption to verify early (M0):** Trystero's default signaling strategy works from a `github.io` origin without extra config. If it doesn't, try another strategy (`mqtt`, `torrent`) before falling back to PeerJS. *Verified in M0; see [decision 0001](decisions/0001-trystero-strategy-packages.md).*
 
 ## 4. Repository layout
 
 ```
 hexbound/
-  DESIGN.md            ← this file
+  docs/
+    DESIGN.md          ← this file
+    decisions/         ← numbered design decision records
   CLAUDE.md            ← short pointer + conventions (create in M0)
   CREDITS.md           ← every third-party asset: name, author, URL, license
   index.html
@@ -304,24 +306,7 @@ function applyIntent(state: GameState, intent: Intent, rng: Rng):
 
 **Rule:** abilities never contain custom code. If a new ability needs a new behavior, add a new `Effect` type to the pipeline. This keeps the 15 hybrids and their combos cheap to build.
 
-**Grid and movement conventions (settled in M1):**
-- Grid coordinates are `{ x, y }`, stored row-major (`tiles[y * width + x]`). In world space, grid `y` maps to `z`.
-- Facing: `0` north (−y), `1` east (+x), `2` south (+y), `3` west (−x). After a move, a unit faces along its last step.
-- Movement is 4-directional BFS, one step per tile. A step is legal when the height difference, **up or down**, is at most `jump` (in tiers). Water isn't walkable.
-- Units can pass through allies (same side: all player slots are one side, `ownerId: 'enemy'` is the other) but not stop on them, and cannot pass through enemies. Downed units block like living ones; graves don't block.
-- Map templates in `src/data/maps/` are rows of characters: `'0'`–`'9'` is height in tiers, `'~'` is water. Land terrain comes from height for now. Spawns are listed per side (`player`, `enemy`).
-
-**Battle rules as built (settled in M2; tune later):**
-- **CT carry** (§5.2): after a turn, `ct` is set to 0 if the unit both moved and acted, 60 if it did one, 80 if it did neither. Overflow above 100 is dropped, so a unit can't be ready again without the clock ticking.
-- **Phase order:** when player and enemy units become ready on the same tick, the player phase runs first; the enemy phase then runs without further ticks. Within a phase, units are ordered by CT (highest first), then id.
-- **Statuses** lose a turn when their unit's turn starts and expire at 0. M2 has `guard` (def ×1.5 until the unit's next turn) and `pinned` (move −2).
-- **Hit chance:** physical = `clamp(90 + facing bonus − target evade, 5, 100)`; magic and non-hostile abilities always land. One roll per target decides all of that ability's effects on it. Status effects then roll their own `chance`.
-- **Damage:** `max(1, round((stat * power − defence) * (1 + height bonus) * (1 + facing bonus)))`, with `def` against `atk` effects and `res` against `mag`. Downed units can't be damaged, healed or given statuses; only `revive` affects them.
-- **Downed:** the 3-turn counter ticks each time the downed unit's CT would make it ready. At 0 it dies and becomes a grave. Rout ends when one side has no standing (non-downed) units.
-- **Knockback** moves the target straight away from the attacker and stops at the board edge, water, any unit, or any higher tile. Drops are allowed (no fall damage yet).
-- **Jobs** have an `attack` field (their basic attack, always usable). Rank gating is deferred to M4: until then, every ability in a job's action set is usable.
-- **Effects implemented:** `damage`, `heal`, `status`, `push`, `revive`, and `cleanse` (new: removes all statuses). `terrain`, `ct` and `summon` will be added when an ability needs them.
-- **Not yet:** line of sight (the `los` flag is ignored), charge-time spells (M5), MP regeneration.
+**Conventions and rule interpretations** settled while building are recorded in [`docs/decisions/`](decisions/README.md): grid, facing and movement ([0003](decisions/0003-grid-and-movement-conventions.md)), the CT timeline ([0004](decisions/0004-ct-timeline-and-phases.md)), combat formulas ([0005](decisions/0005-combat-formulas.md)), and downed units, knockback and effects ([0006](decisions/0006-downed-knockback-and-effects.md)).
 
 ## 9. Art, audio and assets
 
@@ -361,8 +346,7 @@ These are starting points I believe are CC0. **Check the license file in every d
 - Each enemy archetype has its own weight preset (berserker, coward, healer, sniper, boss).
 - Budget: < 50ms per enemy turn on a 20×20 map. Prune options with movement range first.
 - The same AI controls disconnected players' units, using a "cautious ally" preset.
-- **As built (M2):** only the `berserker` preset exists, with weights for damage, kills and healing; damage to its own side counts double against a plan. Danger and objective terms arrive with the presets that need them. With nothing in reach it walks toward the nearest foe. Planning takes under 10ms on the 12×12 meadow.
-- **Known behaviour:** when two berserker sides meet, the side that walks into range first usually loses. In 100 AI-vs-AI meadow battles the side moving second won 97–100% of the time. A human player can exploit this by holding position.
+- What's built so far, and a known weakness of the berserker preset, are in [decision 0007](decisions/0007-berserker-ai.md).
 
 ## 11. Persistence & deploy
 - **Saves:** `localStorage['hexbound:profile']` holds meta unlocks, name and profile ID. `localStorage['hexbound:run']` holds the host's current run state plus seed, autosaved after every battle and node. Wrap every access in try/catch.
@@ -372,6 +356,8 @@ These are starting points I believe are CC0. **Check the license file in every d
 ## 12. Milestones
 
 Each milestone ends in a playable, deployed build.
+
+**Build order: M0, M1, M2, M4, M5, M6, M3, M7.** Networking (M3) was moved after the art pass because we can't test across two networks yet ([decision 0008](decisions/0008-defer-networking-milestone.md)). Milestone numbers are unchanged so existing references stay valid.
 
 **M0: Skeleton & deploy**
 - Vite + TS + Three.js project, `CLAUDE.md`, `CREDITS.md`, GitHub Actions deploy.
@@ -390,23 +376,25 @@ Each milestone ends in a playable, deployed build.
 - Vitest coverage for damage math, pathfinding, the timeline and the reducer.
 - *Done when:* a solo 4v4 Rout battle can be won or lost from start to finish.
 
-**M3: Networked battle**
+**M3: Networked battle** *(built after M6; see decision 0008)*
 - Host/client sessions, lobby, intents → events → state hash flow, snapshot on join.
 - Simultaneous planning with ghost previews and Ready-up.
 - AI takeover on disconnect, rejoin.
-- *Done when:* two players on different networks finish a battle together on the live URL, and a forced desync (devtools) recovers.
+- The **Channel** cross-player combo (moved from M4, since it depends on simultaneous planning).
+- *Done when:* two players on different networks finish a battle together on the live URL, a forced desync (devtools) recovers, and a full 2-player run from lobby to final boss can be played and resumed after a host refresh.
+- *Note:* this needs two machines on different networks to verify. Until then, test with two tabs locally.
 
 **M4: Jobs & progression**
 - All 6 base jobs, JP, ranks, mastery, the secondary slot, passives, ultimates and Resolve.
 - First 5 hybrids: Paladin, Spellblade, Oracle, Ranger, Saboteur.
-- First 2 cross-player combos: Channel and Ignite.
+- First cross-player combo: Ignite, tested hot-seat with the squad split between player slots `p1` and `p2`. (Channel moved to M3.)
 - *Done when:* a unit can master two jobs over several test battles (use a debug JP button) and switch to the hybrid.
 
 **M5: The run**
 - Run map DAG, voting, Camp/Shop/Recruit/Shrine nodes, 3 acts, 3 bosses.
 - Delayed (charge-time) spells resolving on tiles, the rest of the status effects, all 5 objective types.
 - Autosave and resume.
-- *Done when:* a full 2-player run from lobby to final boss can be played and resumed after a host refresh.
+- *Done when:* a full solo run from squad draft to final boss can be played and resumed after a refresh. (The 2-player version is checked in M3.)
 
 **M6: Art pass**
 - Swap capsules for KayKit/Quaternius models, recolors and attachments, animations (idle, walk, attack, cast, hit, downed).
@@ -426,10 +414,11 @@ Each milestone ends in a playable, deployed build.
 ## 14. Open questions
 1. **Square or hex grid?** This doc assumes square (true to FFT). The name "Hexbound" refers to curses, not the grid shape.
 2. **Should units carry between runs** (a roster) or should every run start fresh? Currently: fresh units, with meta unlocks only.
-3. ~~**Repo name and Pages URL.**~~ Resolved: the repo is `wtreible/hexbound` (lowercase, since Pages URLs are case-sensitive), served at `https://wtreible.github.io/hexbound/` (`base: '/hexbound/'`). The game's title stays "Hexbound".
+3. ~~**Repo name and Pages URL.**~~ Resolved in [decision 0002](decisions/0002-lowercase-repo-and-base-path.md): `https://wtreible.github.io/hexbound/`.
 
 ## 15. Conventions for the Claude Code session
 - Read this file first. Keep it updated when a decision changes; don't let code and doc drift apart.
+- Record design decisions in `docs/decisions/` (one numbered file each; see its README) whenever you settle something this spec doesn't say, interpret something ambiguous, or change it.
 - `src/rules` stays pure and fully unit-tested. Run `npm test` before every commit.
 - New content (jobs, abilities, enemies, combos) goes in `src/data` and must not require engine changes. If it does, extend the effect pipeline first.
 - Every asset added gets a `CREDITS.md` line in the same commit.

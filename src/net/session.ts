@@ -1,13 +1,13 @@
 import type { Room } from 'trystero';
 import type { Msg } from './protocol';
 
-// Signaling strategy lives here and only here (DESIGN.md §7.5). Override per
+// Signaling strategy lives here and only here (docs/DESIGN.md §7.5). Override per
 // page load with ?strategy=mqtt or ?strategy=torrent to test fallbacks.
 export type Strategy = 'nostr' | 'mqtt' | 'torrent';
 export const DEFAULT_STRATEGY: Strategy = 'nostr';
 export const APP_ID = 'hexbound-v1';
 
-// Letters only, without lookalikes (I, O) — DESIGN.md §7.2.
+// Letters only, without lookalikes (I, O) — docs/DESIGN.md §7.2.
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROOM_CODE_LENGTH = 5;
 

@@ -9,7 +9,7 @@ import { findUnit } from './units';
 
 export type IntentResult = Step | { error: string };
 
-// The single entry point for changing game state (DESIGN.md §8). The host
+// The single entry point for changing game state (docs/DESIGN.md §8). The host
 // runs this for every intent, including in solo play. Returns a new state;
 // the input is never mutated.
 export function applyIntent(state: GameState, intent: Intent, rng: Rng): IntentResult {

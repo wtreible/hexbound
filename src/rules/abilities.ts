@@ -5,7 +5,7 @@ import type { Rng } from './rng';
 import type { AbilityDef, GameEvent, Grid, Pos, Unit } from './types';
 import { isDowned, isStanding, unitAt } from './units';
 
-// The ability effect pipeline (DESIGN.md §8). Abilities are data; each Effect
+// The ability effect pipeline (docs/DESIGN.md §8). Abilities are data; each Effect
 // type is handled here once. New behaviours mean new Effect types, never
 // per-ability code.
 

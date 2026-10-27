@@ -1,6 +1,6 @@
 import type { JobDef } from '../rules/types';
 
-// Base jobs (DESIGN.md §6.3). Passives, ultimates and rank gating arrive in M4;
+// Base jobs (docs/DESIGN.md §6.3). Passives, ultimates and rank gating arrive in M4;
 // until then every ability in the action set is usable.
 
 const defs: JobDef[] = [

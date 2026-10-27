@@ -1,6 +1,6 @@
 import type { AbilityDef } from '../rules/types';
 
-// Ability definitions (DESIGN.md §6.3, §8). Pure data: every behaviour comes
+// Ability definitions (docs/DESIGN.md §6.3, §8). Pure data: every behaviour comes
 // from the effect pipeline in rules/abilities.ts.
 
 const MELEE = { min: 1, max: 1, los: false } as const;

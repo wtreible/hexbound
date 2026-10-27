@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 
-// Floating combat text (DESIGN.md §9.1): white numbers with a dark outline
+// Floating combat text (docs/DESIGN.md §9.1): white numbers with a dark outline
 // that pop up over a unit and fade. DOM overlay positioned from the 3D point.
 
 export type FxKind = 'damage' | 'heal' | 'miss' | 'info';

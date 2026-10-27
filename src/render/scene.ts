@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 // Orthographic camera at ~30° elevation, rotating in 90° steps with a 250ms
-// tween and three zoom steps (DESIGN.md §9.1). VIEW_SIZE is the number of
+// tween and three zoom steps (docs/DESIGN.md §9.1). VIEW_SIZE is the number of
 // world units visible vertically at zoom 1.
 const VIEW_SIZE = 14;
 const ELEVATION = THREE.MathUtils.degToRad(30);

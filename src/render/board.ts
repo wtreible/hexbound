@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { posOf } from '../rules/grid';
 import type { Grid, Pos, TerrainId } from '../rules/types';
 
-// One height tier is half a tile tall (DESIGN.md §9.1). A height-0 tile still
+// One height tier is half a tile tall (docs/DESIGN.md §9.1). A height-0 tile still
 // has one tier of thickness so the board reads as a chunky diorama.
 export const TIER = 0.5;
 const TILE_SIZE = 0.96; // the gap shows the background as grid lines

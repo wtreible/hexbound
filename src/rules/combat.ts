@@ -3,7 +3,7 @@ import { effectiveStats } from './jobs';
 import type { AbilityDef, Effect, Grid, Pos, Unit } from './types';
 import { isDowned, isStanding, unitAt } from './units';
 
-// Combat math (DESIGN.md §5.3). Starting values; tune later.
+// Combat math (docs/DESIGN.md §5.3). Starting values; tune later.
 export const HEIGHT_DAMAGE_PER_TIER = 0.1;
 export const HEIGHT_DAMAGE_CAP = 0.3;
 export const PHYSICAL_BASE_HIT = 90;
@@ -38,7 +38,7 @@ export function maxRange(grid: Grid, ability: AbilityDef, from: Pos, to: Pos): n
   return ability.range.max + bonus;
 }
 
-// Line of sight is not checked yet (DESIGN.md: rules/grid.ts, later milestone).
+// Line of sight is not checked yet (docs/DESIGN.md: rules/grid.ts, later milestone).
 export function inRange(grid: Grid, ability: AbilityDef, from: Pos, target: Pos): boolean {
   if (!inBounds(grid, target)) return false;
   const d = manhattan(from, target);

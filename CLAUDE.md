@@ -1,6 +1,9 @@
 # Hexbound Company
 
-Co-op tactics roguelike in the browser, hosted on GitHub Pages. **Read `DESIGN.md` first** — it's the source of truth. Work through its §12 milestones in order; keep the doc updated when a decision changes.
+Co-op tactics roguelike in the browser, hosted on GitHub Pages. **Read `docs/DESIGN.md` first**: it's the source of truth. Work through its §12 milestones in the build order given there (M3 networking is deferred; see `docs/decisions/0008`). Keep the doc updated when a decision changes.
+
+## Design decisions
+Record every design decision in `docs/decisions/` as a numbered file (template and index in its README): anything the spec doesn't say, anything it says ambiguously that you had to interpret, and any change to it. Add the record in the same commit as the code it explains, and update `docs/DESIGN.md` if the spec itself changes.
 
 ## Commands
 - `npm run dev` — local dev server (open two tabs to test multiplayer)

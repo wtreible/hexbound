@@ -1,4 +1,4 @@
-// Wire protocol (DESIGN.md §7.4). Bump PROTOCOL_VERSION on any breaking change;
+// Wire protocol (docs/DESIGN.md §7.4). Bump PROTOCOL_VERSION on any breaking change;
 // clients with a mismatched version are told to refresh.
 //
 // M0 only carries hello + ping. The game messages (snapshot, plan, commit,

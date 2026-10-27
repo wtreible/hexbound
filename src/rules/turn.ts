@@ -2,7 +2,7 @@ import { effectiveStats } from './jobs';
 import type { ActiveUnit, GameEvent, GameState, Unit } from './types';
 import { isDowned, isEnemy, isStanding } from './units';
 
-// CT timeline (DESIGN.md §5.2). Each tick adds spd to every unit's ct; at
+// CT timeline (docs/DESIGN.md §5.2). Each tick adds spd to every unit's ct; at
 // READY_CT a unit is ready. Ready player units act together in a player
 // phase (any order), then ready enemies act one at a time in CT order.
 

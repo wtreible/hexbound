@@ -4,7 +4,7 @@ import { effectiveStats } from '../rules/jobs';
 import type { Facing, Grid, Pos, Unit } from '../rules/types';
 import { tileCenter } from './board';
 
-// Placeholder capsule units (DESIGN.md §9.3) so rendering never blocks on
+// Placeholder capsule units (docs/DESIGN.md §9.3) so rendering never blocks on
 // assets. A cone on the front shows facing. Swapped for glb models in M6.
 const STEP_SECONDS = 0.16;
 const HOP_HEIGHT = 0.35;

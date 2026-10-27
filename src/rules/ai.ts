@@ -4,7 +4,7 @@ import { abilitiesOf, effectiveStats } from './jobs';
 import type { Facing, GameState, Intent, Pos, Unit } from './types';
 import { findUnit, isStanding, sameSide } from './units';
 
-// Enemy AI (DESIGN.md §10). Enumerates every (reachable tile x ability x
+// Enemy AI (docs/DESIGN.md §10). Enumerates every (reachable tile x ability x
 // target) and scores it; with nothing worth doing it closes distance.
 // Danger and objective terms arrive with the presets that use them.
 

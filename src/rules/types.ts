@@ -1,4 +1,4 @@
-// Core game types (DESIGN.md §8). Everything here is a plain serializable
+// Core game types (docs/DESIGN.md §8). Everything here is a plain serializable
 // object so it can be diffed, sent over the network and saved.
 
 export type Pos = { x: number; y: number };
