@@ -15,13 +15,15 @@ const TOP_COLORS: Record<TerrainId, number> = {
   water: 0x4f7486,
 };
 
-export type HighlightKind = 'reach' | 'pass' | 'path' | 'selected';
+export type HighlightKind = 'reach' | 'pass' | 'path' | 'range' | 'area' | 'facing';
 
 const HIGHLIGHT_COLORS: Record<HighlightKind, number> = {
   reach: 0x5aa0e0,
   pass: 0x5a7090,
   path: 0xf0c060,
-  selected: 0xffffff,
+  range: 0xe0905a,
+  area: 0xe04a3a,
+  facing: 0xf0e0b0,
 };
 
 export function tileTop(grid: Grid, p: Pos): number {
@@ -40,6 +42,8 @@ export type BoardView = {
   center: THREE.Vector3;
   setHighlights(highlights: Map<number, HighlightKind>): void;
   setCursor(p: Pos | null): void;
+  /** Outline the selected unit's tile. */
+  setSelection(p: Pos | null): void;
   /** Grid index of the tile under the ray, or null. */
   pick(raycaster: THREE.Raycaster): number | null;
 };
@@ -73,7 +77,9 @@ export function createBoard(scene: THREE.Scene, grid: Grid): BoardView {
     reach: overlayMaterial('reach'),
     pass: overlayMaterial('pass'),
     path: overlayMaterial('path'),
-    selected: overlayMaterial('selected'),
+    range: overlayMaterial('range'),
+    area: overlayMaterial('area'),
+    facing: overlayMaterial('facing'),
   };
 
   grid.tiles.forEach((tile, i) => {
@@ -107,6 +113,25 @@ export function createBoard(scene: THREE.Scene, grid: Grid): BoardView {
   cursor.renderOrder = 2;
   group.add(cursor);
 
+  // A solid square frame rather than a line: WebGL lines are always 1px wide.
+  const frameShape = new THREE.Shape()
+    .moveTo(-h, -h)
+    .lineTo(h, -h)
+    .lineTo(h, h)
+    .lineTo(-h, h)
+    .lineTo(-h, -h);
+  const inner = h - 0.07;
+  frameShape.holes.push(
+    new THREE.Path().moveTo(-inner, -inner).lineTo(-inner, inner).lineTo(inner, inner).lineTo(inner, -inner).lineTo(-inner, -inner),
+  );
+  const selection = new THREE.Mesh(
+    new THREE.ShapeGeometry(frameShape).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffd866, depthWrite: false }),
+  );
+  selection.visible = false;
+  selection.renderOrder = 2;
+  group.add(selection);
+
   return {
     center: new THREE.Vector3((grid.width - 1) / 2, 0, (grid.depth - 1) / 2),
     setHighlights(highlights) {
@@ -119,6 +144,10 @@ export function createBoard(scene: THREE.Scene, grid: Grid): BoardView {
     setCursor(p) {
       cursor.visible = p !== null;
       if (p) cursor.position.copy(tileCenter(grid, p)).setY(tileTop(grid, p) + 0.02);
+    },
+    setSelection(p) {
+      selection.visible = p !== null;
+      if (p) selection.position.copy(tileCenter(grid, p)).setY(tileTop(grid, p) + 0.025);
     },
     pick(raycaster) {
       const hit = raycaster.intersectObjects(tileMeshes, false)[0];
