@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { posOf } from '../rules/grid';
-import type { Grid, Pos, TerrainId } from '../rules/types';
+import type { Grid, Hazard, HazardId, Pos, TerrainId } from '../rules/types';
 
 // One height tier is half a tile tall (docs/DESIGN.md §9.1). A height-0 tile still
 // has one tier of thickness so the board reads as a chunky diorama.
@@ -26,6 +26,14 @@ const HIGHLIGHT_COLORS: Record<HighlightKind, number> = {
   facing: 0xf0e0b0,
 };
 
+// Hazard markers: oil and fire cover the tile; traps and mines are small discs.
+const HAZARD_LOOK: Record<HazardId, { color: number; opacity: number; disc: boolean }> = {
+  oil: { color: 0x1c1712, opacity: 0.75, disc: false },
+  fire: { color: 0xff6a1f, opacity: 0.7, disc: false },
+  trap: { color: 0xb8b0a0, opacity: 0.95, disc: true },
+  mine: { color: 0xc0392b, opacity: 0.95, disc: true },
+};
+
 export function tileTop(grid: Grid, p: Pos): number {
   const tile = grid.tiles[p.y * grid.width + p.x];
   if (!tile) return 0;
@@ -44,13 +52,14 @@ export type BoardView = {
   setCursor(p: Pos | null): void;
   /** Outline the selected unit's tile. */
   setSelection(p: Pos | null): void;
+  setHazards(hazards: readonly Hazard[]): void;
   /** Grid index of the tile under the ray, or null. */
   pick(raycaster: THREE.Raycaster): number | null;
 };
 
-export function createBoard(scene: THREE.Scene, grid: Grid): BoardView {
+export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
   const group = new THREE.Group();
-  scene.add(group);
+  parent.add(group);
 
   const materials = new Map<TerrainId, THREE.Material[]>();
   const materialsFor = (terrain: TerrainId) => {
@@ -132,8 +141,28 @@ export function createBoard(scene: THREE.Scene, grid: Grid): BoardView {
   selection.renderOrder = 2;
   group.add(selection);
 
+  const hazardGroup = new THREE.Group();
+  group.add(hazardGroup);
+  const hazardPlane = new THREE.PlaneGeometry(TILE_SIZE * 0.9, TILE_SIZE * 0.9).rotateX(-Math.PI / 2);
+  const hazardDisc = new THREE.CircleGeometry(0.18, 16).rotateX(-Math.PI / 2);
+  const hazardMaterials = Object.fromEntries(
+    Object.entries(HAZARD_LOOK).map(([id, look]) => [
+      id,
+      new THREE.MeshBasicMaterial({ color: look.color, transparent: true, opacity: look.opacity, depthWrite: false }),
+    ]),
+  ) as Record<string, THREE.Material>;
+
   return {
     center: new THREE.Vector3((grid.width - 1) / 2, 0, (grid.depth - 1) / 2),
+    setHazards(hazards) {
+      hazardGroup.clear();
+      for (const h of hazards) {
+        const mesh = new THREE.Mesh(HAZARD_LOOK[h.id].disc ? hazardDisc : hazardPlane, hazardMaterials[h.id]);
+        mesh.position.copy(tileCenter(grid, h.pos)).setY(tileTop(grid, h.pos) + 0.005);
+        mesh.renderOrder = 0;
+        hazardGroup.add(mesh);
+      }
+    },
     setHighlights(highlights) {
       overlays.forEach((overlay, i) => {
         const kind = highlights.get(i);

@@ -51,7 +51,7 @@ function facingAngle(f: Facing): number {
   return Math.atan2(d.x, d.y);
 }
 
-export function createUnits(scene: THREE.Scene, grid: Grid): UnitsView {
+export function createUnits(scene: THREE.Object3D, grid: Grid): UnitsView {
   const meshes = new Map<string, UnitMesh>();
   const bodyGeometry = new THREE.CapsuleGeometry(0.25, 0.35, 4, 12).translate(0, 0.425, 0);
   const noseGeometry = new THREE.ConeGeometry(0.1, 0.22, 10).rotateX(Math.PI / 2).translate(0, 0.55, 0.3);

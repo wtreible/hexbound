@@ -1,24 +1,41 @@
-import { abilitiesOf, effectiveStats, jobOf } from '../rules/jobs';
+import { abilityEntries, canAfford, effectiveStats, job, jobOf, RANK_JP, rankOf, type AbilitySource } from '../rules/jobs';
 import type { ActiveUnit, Unit } from '../rules/types';
 import { OWNER_COLORS } from '../render/units';
+import { STATUS_NAMES } from './names';
 
 // Bottom-centre command bar for the selected active unit: avatar on the left,
-// numbered actions in the middle (keys 1-9), stats on the right. Actions the
-// unit can't take right now are greyed out.
+// numbered actions in the middle, stats on the right. Actions the unit can't
+// take right now (already moved or acted, locked by rank, too expensive) are
+// greyed out. Keys 1-9, then 0, - and = pick actions by position.
+
+export const ACTION_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 
 export type ActionKey = 'move' | 'wait' | { abilityId: string };
 
-export type Action = { key: ActionKey; label: string; detail: string; disabled: boolean };
+export type Action = {
+  key: ActionKey;
+  label: string;
+  detail: string;
+  disabled: boolean;
+  section: 'move' | AbilitySource | 'wait';
+};
 
-/** The unit's actions in menu order: Move, basic attack, job abilities, Wait. */
+/** The unit's actions in menu order: Move, basic attack, primary set, secondary set, ultimate, Wait. */
 export function listActions(unit: Unit, entry: ActiveUnit): Action[] {
   return [
-    { key: 'move', label: 'Move', detail: '', disabled: entry.moved },
-    ...abilitiesOf(unit).map((a) => {
-      const cost = a.cost?.mp ?? 0;
-      return { key: { abilityId: a.id }, label: a.name, detail: cost ? `${cost} MP` : '', disabled: entry.acted || cost > unit.mp };
+    { key: 'move', label: 'Move', detail: '', disabled: entry.moved, section: 'move' },
+    ...abilityEntries(unit).map((e): Action => {
+      const mp = e.ability.cost?.mp ?? 0;
+      const detail = e.locked ? `Rank ${e.rank}` : e.ability.cost?.resolve ? 'Resolve' : mp ? `${mp} MP` : '';
+      return {
+        key: { abilityId: e.ability.id },
+        label: e.ability.name,
+        detail,
+        disabled: e.locked || entry.acted || !canAfford(unit, e.ability),
+        section: e.source,
+      };
     }),
-    { key: 'wait', label: 'Wait', detail: '', disabled: false },
+    { key: 'wait', label: 'Wait', detail: '', disabled: false, section: 'wait' },
   ];
 }
 
@@ -33,8 +50,6 @@ export type ActionMenuView = {
   hide(): void;
 };
 
-export const STATUS_NAMES = { guard: 'Guard', pinned: 'Pinned' } as const;
-
 const cssColor = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
 
 const el = (tag: string, className: string, text?: string) => {
@@ -43,6 +58,14 @@ const el = (tag: string, className: string, text?: string) => {
   if (text !== undefined) e.textContent = text;
   return e;
 };
+
+/** "Rank 1 · 75/150 JP", or "Mastered". */
+export function rankLine(unit: Unit, jobId: string): string {
+  const rank = rankOf(unit, jobId);
+  const jp = unit.jp[jobId] ?? 0;
+  const next = RANK_JP[rank];
+  return next === undefined ? `Mastered · ${jp} JP` : `Rank ${rank} · ${jp}/${next} JP`;
+}
 
 export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) => void): ActionMenuView {
   const bar = el('div', 'command-bar');
@@ -62,26 +85,35 @@ export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) =>
   return {
     show(unit, entry, picked) {
       const stats = effectiveStats(unit);
-      const job = jobOf(unit);
+      const j = jobOf(unit);
 
       // Placeholder portrait until character art lands in M6.
       const avatar = el('div', 'panel avatar');
-      const portrait = el('div', 'portrait', job.name[0]);
+      const portrait = el('div', 'portrait', j.name[0]);
       portrait.style.background = cssColor(OWNER_COLORS[unit.ownerId] ?? 0x999999);
-      avatar.append(portrait, el('div', 'name', unit.name), el('div', 'job', `${job.name} · Lv ${unit.level}`));
+      avatar.append(portrait, el('div', 'name', unit.name), el('div', 'job', `${j.name} · Lv ${unit.level}`), el('div', 'job', rankLine(unit, j.id)));
 
+      const sectionTitle: Partial<Record<Action['section'], string>> = {
+        primary: j.name,
+        secondary: unit.secondary ? job(unit.secondary).name : '',
+        ultimate: 'Ultimate',
+      };
       const actions = el('div', 'panel actions');
+      let lastSection: Action['section'] | null = null;
       listActions(unit, entry).forEach((action, i) => {
+        const title = sectionTitle[action.section];
+        if (title && action.section !== lastSection) actions.appendChild(el('div', 'section', title));
+        lastSection = action.section;
         const b = document.createElement('button');
         b.disabled = action.disabled;
         if (sameAction(action.key, picked)) b.classList.add('picked');
-        b.append(el('span', 'num', String(i + 1)), el('span', 'label', action.label), el('span', 'detail', action.detail));
+        b.append(el('span', 'num', ACTION_KEYS[i] ?? ''), el('span', 'label', action.label), el('span', 'detail', action.detail));
         b.addEventListener('click', () => onAction(action.key));
         actions.appendChild(b);
       });
 
       const info = el('div', 'panel stats');
-      info.append(meter('HP', unit.hp, stats.hp, 'hp'), meter('MP', unit.mp, stats.mp, 'mp'));
+      info.append(meter('HP', unit.hp, stats.hp, 'hp'), meter('MP', unit.mp, stats.mp, 'mp'), meter('RES', unit.resolve, 100, 'resolve'));
       const grid = el('div', 'stat-grid');
       const shown: [string, number | string][] = [
         ['ATK', stats.atk], ['MAG', stats.mag], ['DEF', stats.def], ['RES', stats.res],

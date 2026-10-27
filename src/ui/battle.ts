@@ -3,6 +3,7 @@ import { faceToward, planTurn } from '../rules/ai';
 import { areaTiles, previewAct, targetTiles, type TargetPreview } from '../rules/combat';
 import { indexOf, neighbors, pathTo, posOf, reachable, tileAt, type Reach } from '../rules/grid';
 import { ability, effectiveStats, jobOf } from '../rules/jobs';
+import { HAZARD_NAMES, STATUS_NAMES } from './names';
 import { applyIntent } from '../rules/reducer';
 import type { Rng } from '../rules/rng';
 import type { GameEvent, GameState, Intent, Unit } from '../rules/types';
@@ -11,11 +12,11 @@ import { createBoard, type HighlightKind } from '../render/board';
 import { createFx } from '../render/fx';
 import type { SceneHandle } from '../render/scene';
 import { createUnits } from '../render/units';
-import { listActions, mountActionMenu, sameAction, STATUS_NAMES, type ActionKey } from './actionMenu';
+import { ACTION_KEYS, listActions, mountActionMenu, rankLine, sameAction, type ActionKey } from './actionMenu';
 import { mountTimeline } from './timeline';
 
-// Solo battle (M2). In the player phase, pick an active unit (gold ring),
-// then choose actions from the numbered command bar (or keys 1-9): Move and
+// Solo battle. In the player phase, pick an active unit (gold ring),
+// then choose actions from the numbered command bar (or keys 1-9, 0, -, =): Move and
 // click a blue tile, an ability and click a target, Wait and click a
 // direction to face. Enemies then act through the AI. Every change goes
 // through applyIntent so M3 can route it through the host. Q/E rotate, wheel
@@ -32,16 +33,37 @@ type Mode =
 const ENEMY_STEP_MS = 280;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: GameState, rng: Rng): void {
+export type BattleView = { dispose(): void };
+
+/**
+ * Mounts a battle on the shared scene and UI root. `onDone` gets the final
+ * state when the player leaves the result screen; call dispose() afterwards.
+ */
+export function mountBattle(
+  view: SceneHandle,
+  appRoot: HTMLElement,
+  initial: GameState,
+  rng: Rng,
+  onDone: (final: GameState) => void,
+): BattleView {
   let state = initial;
   let mode: Mode = { kind: 'busy' };
   let hovered: number | null = null;
 
+  // Everything this battle adds lives under these two roots, so dispose() is just removal.
+  const world = new THREE.Group();
+  view.scene.add(world);
+  const uiRoot = document.createElement('div');
+  appRoot.appendChild(uiRoot);
+  const listeners = new AbortController();
+  const { signal } = listeners;
+
   const { grid } = state;
-  const board = createBoard(view.scene, grid);
-  const units = createUnits(view.scene, grid);
+  const board = createBoard(world, grid);
+  const units = createUnits(world, grid);
   const fx = createFx(uiRoot, view.camera, view.renderer.domElement);
   units.sync(state.units);
+  board.setHazards(state.hazards);
   view.lookAt(board.center);
 
   const timeline = mountTimeline(uiRoot);
@@ -92,7 +114,7 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
     const u = unit(mode.unitId);
     const a = ability(mode.abilityId);
     const p = posOf(grid, hovered);
-    if (!targetTiles(grid, a, u.pos).some((t) => t.x === p.x && t.y === p.y)) return [];
+    if (!targetTiles(grid, a, u).some((t) => t.x === p.x && t.y === p.y)) return [];
     return previewAct(grid, state.units, u, a, p);
   };
 
@@ -107,7 +129,7 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
     } else if (m.kind === 'target') {
       const u = unit(m.unitId);
       const a = ability(m.abilityId);
-      const tiles = targetTiles(grid, a, u.pos);
+      const tiles = targetTiles(grid, a, u);
       for (const p of tiles) highlights.set(indexOf(grid, p), 'range');
       const hp = hovered !== null ? posOf(grid, hovered) : null;
       if (hp && tiles.some((t) => t.x === hp.x && t.y === hp.y)) {
@@ -137,14 +159,17 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
     if (hovered !== null) {
       const p = posOf(grid, hovered);
       const tile = tileAt(grid, p)!;
-      lines.push({ text: `Tile ${p.x},${p.y} · ${tile.terrain} · height ${tile.height}` });
+      const hazard = state.hazards.find((h) => h.pos.x === p.x && h.pos.y === p.y);
+      const hazardText = hazard ? ` · ${HAZARD_NAMES[hazard.id]} (${hazard.rounds} rounds)` : '';
+      lines.push({ text: `Tile ${p.x},${p.y} · ${tile.terrain} · height ${tile.height}${hazardText}` });
       const u = unitAt(state.units, p.x, p.y);
       if (u) {
         const s = effectiveStats(u);
         const statuses = u.statuses.map((x) => STATUS_NAMES[x.id]).join(', ');
         const downed = u.downedTurns !== undefined ? ` · DOWNED (${u.downedTurns} turns)` : '';
-        lines.push({ text: `${u.name} · ${jobOf(u).name}${isEnemy(u) ? ' (enemy)' : ''}${downed}` });
-        lines.push({ text: `HP ${u.hp}/${s.hp} · MP ${u.mp}/${s.mp} · CT ${u.ct} · Move ${s.move} · Jump ${s.jump}${statuses ? ` · ${statuses}` : ''}` });
+        const owner = isEnemy(u) ? ' (enemy)' : ` (${u.ownerId})`;
+        lines.push({ text: `${u.name} · ${jobOf(u).name}${owner}${downed}${isEnemy(u) ? '' : ` · ${rankLine(u, u.job)}`}` });
+        lines.push({ text: `HP ${u.hp}/${s.hp} · MP ${u.mp}/${s.mp} · Resolve ${u.resolve} · CT ${u.ct} · Move ${s.move} · Jump ${s.jump}${statuses ? ` · ${statuses}` : ''}` });
       }
     }
     for (const p of targetPreview()) {
@@ -157,7 +182,7 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
       lines.push({ text: `→ ${p.unit.name}: ${parts.join(', ')}${chance}${p.downs ? ' · KO' : ''}`, cls: 'preview' });
     }
     const hints: Record<Mode['kind'], string> = {
-      command: 'Pick an action (1-9) · Q/E rotate · wheel zoom',
+      command: 'Pick an action (number keys) · Q/E rotate · wheel zoom',
       move: 'Click a blue tile to move · Esc back',
       target: 'Click an orange tile to use it · Esc back',
       facing: 'Click a direction to face and end the turn · Esc back',
@@ -232,6 +257,33 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
         case 'down-tick':
           popAt(e.unitId, `${e.turnsLeft} turns left`, 'info');
           break;
+        case 'mp':
+          if (e.amount) popAt(e.unitId, `${e.amount > 0 ? '+' : ''}${e.amount} MP`, 'info');
+          break;
+        case 'ct':
+          popAt(e.unitId, `${e.delta > 0 ? '+' : ''}${e.delta} CT`, 'info');
+          break;
+        case 'hazard':
+          board.setHazards(state.hazards);
+          break;
+        case 'triggered':
+          popAt(e.unitId, HAZARD_NAMES[e.hazard], 'info');
+          await sleep(200);
+          break;
+        case 'countered':
+          popAt(e.unitId, 'Counter', 'info');
+          await sleep(250);
+          break;
+        case 'covered':
+          popAt(e.unitId, 'Cover', 'info');
+          await sleep(250);
+          break;
+        case 'combo':
+          await showBanner(ability(e.comboId).name + '!', 600);
+          break;
+        case 'jp':
+          popAt(e.unitId, `+${e.amount} JP${e.rankUp ? (e.rank >= 3 ? ' · Mastered!' : ` · Rank ${e.rank}!`) : ''}`, 'info');
+          break;
         case 'phase':
           if (impacts) await sleep(500);
           impacts = false;
@@ -255,6 +307,7 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
     state = result.state;
     await play(result.events);
     units.sync(state.units);
+    board.setHazards(state.hazards);
     timeline.update(state);
     return true;
   };
@@ -303,8 +356,8 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
     const detail = document.createElement('p');
     detail.textContent = lost.length ? `Lost for good: ${lost.join(', ')}` : 'No one was lost.';
     const again = document.createElement('button');
-    again.textContent = 'Fight again';
-    again.addEventListener('click', () => location.reload());
+    again.textContent = 'Return to camp';
+    again.addEventListener('click', () => onDone(state));
     panel.append(title, detail, again);
     uiRoot.appendChild(panel);
   };
@@ -341,7 +394,7 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
       }
       case 'target': {
         const u = unit(m.unitId);
-        if (targetTiles(grid, ability(m.abilityId), u.pos).some((t) => t.x === p.x && t.y === p.y)) {
+        if (targetTiles(grid, ability(m.abilityId), u).some((t) => t.x === p.x && t.y === p.y)) {
           void run([{ type: 'act', unitId: u.id, abilityId: m.abilityId, target: p }], u.id);
         }
         return;
@@ -381,24 +434,36 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
   };
 
   const canvas = view.renderer.domElement;
-  canvas.addEventListener('pointermove', (e) => {
-    pointer = e;
-  });
-  canvas.addEventListener('pointerleave', () => {
-    pointer = null;
-  });
-  canvas.addEventListener('click', (e) => onClick(pickAt(e)));
-  canvas.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    back();
-  });
+  canvas.addEventListener(
+    'pointermove',
+    (e) => {
+      pointer = e;
+    },
+    { signal },
+  );
+  canvas.addEventListener(
+    'pointerleave',
+    () => {
+      pointer = null;
+    },
+    { signal },
+  );
+  canvas.addEventListener('click', (e) => onClick(pickAt(e)), { signal });
+  canvas.addEventListener(
+    'contextmenu',
+    (e) => {
+      e.preventDefault();
+      back();
+    },
+    { signal },
+  );
   canvas.addEventListener(
     'wheel',
     (e) => {
       e.preventDefault();
       view.zoom(e.deltaY < 0 ? 1 : -1);
     },
-    { passive: false },
+    { passive: false, signal },
   );
   window.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement) return;
@@ -422,17 +487,26 @@ export function mountBattle(view: SceneHandle, uiRoot: HTMLElement, initial: Gam
         back();
         break;
       default: {
-        // Number keys pick the matching command bar action.
-        const n = Number(e.key);
+        // Number keys (then 0, -, =) pick the matching command bar action.
+        const index = ACTION_KEYS.indexOf(e.key);
         const id = selectedId();
         const entry = id ? activeEntry(id) : undefined;
-        if (!Number.isInteger(n) || n < 1 || !id || !entry) break;
-        const action = listActions(unit(id), entry)[n - 1];
+        if (index < 0 || !id || !entry) break;
+        const action = listActions(unit(id), entry)[index];
         if (action) chooseAction(action.key);
       }
     }
-  });
+  }, { signal });
 
   timeline.update(state);
   void settle();
+
+  return {
+    dispose() {
+      listeners.abort();
+      view.onFrame = null;
+      view.scene.remove(world);
+      uiRoot.remove();
+    },
+  };
 }
