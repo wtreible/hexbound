@@ -1,0 +1,22 @@
+{
+  "scale": 0.5,
+  "bones": { "right": "handslot.r", "left": "handslot.l" },
+  "bodies": {
+    "knight": "knight.glb",
+    "barbarian": "barbarian.glb",
+    "mage": "mage.glb",
+    "rogue": "rogue.glb",
+    "rogue_hooded": "rogue_hooded.glb",
+    "skeleton_warrior": "skeleton_warrior.glb",
+    "skeleton_mage": "skeleton_mage.glb",
+    "skeleton_rogue": "skeleton_rogue.glb",
+    "skeleton_minion": "skeleton_minion.glb"
+  },
+  "weapons": {
+    "sword": "weapons/sword_1handed.glb",
+    "staff": "weapons/staff.glb",
+    "crossbow": "weapons/crossbow_1handed.glb",
+    "dagger": "weapons/dagger.glb",
+    "shield": "weapons/shield_round.glb"
+  }
+}
