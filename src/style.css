@@ -46,8 +46,22 @@ body {
 .lobby {
   position: absolute;
   top: 16px;
-  left: 16px;
+  right: 16px;
   width: min(360px, calc(100% - 32px));
+}
+
+.hud {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  max-width: calc(100% - 32px);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.hud .hint {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .lobby h1 {
