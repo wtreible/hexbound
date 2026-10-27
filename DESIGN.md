@@ -27,7 +27,7 @@ This document is the source of truth for starting the build. A fresh Claude Code
 ## 3. Tech stack
 
 - **Language:** TypeScript (strict).
-- **Build:** Vite. `base: '/Hexbound/'` in `vite.config.ts` for project Pages (must match the repo name).
+- **Build:** Vite. `base: '/hexbound/'` in `vite.config.ts` for project Pages (must match the repo name).
 - **Rendering:** Three.js with an `OrthographicCamera`. Glb models loaded via `GLTFLoader`; animations via `AnimationMixer`.
 - **UI:** Plain DOM overlay (HTML/CSS) over the canvas for menus, turn timeline, ability lists and tooltips. Recommend Preact if components grow; don't start with a framework.
 - **Networking:** [Trystero](https://github.com/dmotz/trystero), which handles WebRTC with serverless signaling over public Nostr relays, MQTT or BitTorrent trackers. Fallback: PeerJS using its free public broker.
@@ -405,7 +405,7 @@ Each milestone ends in a playable, deployed build.
 ## 14. Open questions
 1. **Square or hex grid?** This doc assumes square (true to FFT). The name "Hexbound" refers to curses, not the grid shape.
 2. **Should units carry between runs** (a roster) or should every run start fresh? Currently: fresh units, with meta unlocks only.
-3. ~~**Repo name and Pages URL.**~~ Resolved: the repo is `wtreible/Hexbound`, served at `https://wtreible.github.io/Hexbound/` (`base: '/Hexbound/'`).
+3. ~~**Repo name and Pages URL.**~~ Resolved: the repo is `wtreible/hexbound` (lowercase, since Pages URLs are case-sensitive), served at `https://wtreible.github.io/hexbound/` (`base: '/hexbound/'`). The game's title stays "Hexbound".
 
 ## 15. Conventions for the Claude Code session
 - Read this file first. Keep it updated when a decision changes; don't let code and doc drift apart.
