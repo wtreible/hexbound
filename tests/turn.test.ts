@@ -6,7 +6,8 @@ import { flat, makeUnit } from './fixtures';
 
 function idle(units: Unit[]): GameState {
   // An empty phase; advance() runs the clock from here.
-  return { grid: gridFromRows(flat(6, 6)), units, hazards: [], turn: { phase: 'player', active: [] } };
+  // An empty waiting list means the next advance() starts a new round.
+  return { grid: gridFromRows(flat(6, 6)), units, hazards: [], round: { n: 0, waiting: [] }, inventory: {}, loot: [], objective: { type: 'rout' }, casts: [], turn: { phase: 'player', active: [] } };
 }
 
 describe('advance', () => {
@@ -44,25 +45,40 @@ describe('advance', () => {
     expect(r.events).toContainEqual({ type: 'status', unitId: 'a', status: 'guard', added: false });
   });
 
-  it('counts down downed units on their would-be turns, then they die', () => {
-    const down = makeUnit('d', 'p1', 'squire', { x: 0, y: 0 }, { patch: { hp: 0, downedTurns: 2, ct: 99 } });
-    const units = [down, makeUnit('a', 'p1', 'archer', { x: 1, y: 0 }), makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 })];
-    let r = advance(idle(units));
-    expect(r.events).toContainEqual({ type: 'down-tick', unitId: 'd', turnsLeft: 1 });
-    // Its CT restarts from 0 and keeps ticking until someone is ready.
-    expect(r.state.units[0]!.downedTurns).toBe(1);
-    expect(r.state.units[0]!.ct).toBeLessThan(100);
-
-    r = advance(idle([{ ...r.state.units[0]!, ct: 99 }, ...units.slice(1)]));
+  it('gives downed units 3 full rounds, then they die as the 4th starts', () => {
+    // Each advance() here starts a player phase, i.e. a new round.
+    const down = makeUnit('d', 'p1', 'squire', { x: 0, y: 0 }, { patch: { hp: 0, downedRounds: 3 } });
+    let units = [down, makeUnit('a', 'p1', 'archer', { x: 1, y: 0 }), makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 })];
+    for (const left of [2, 1, 0]) {
+      const r = advance(idle(units));
+      expect(r.events).toContainEqual({ type: 'down-tick', unitId: 'd', roundsLeft: left });
+      expect(r.state.units[0]!.downedRounds).toBe(left);
+      // Reset the clock so the (faster) archer starts the next phase: a player phase.
+      units = r.state.units.map((u) => ({ ...u, ct: 0 }));
+    }
+    const r = advance(idle(units));
     expect(r.events).toContainEqual({ type: 'died', unitId: 'd' });
     expect(r.state.units[0]!.dead).toBe(true);
-    expect(r.state.units[0]!.downedTurns).toBeUndefined();
+    expect(r.state.units[0]!.downedRounds).toBeUndefined();
+  });
+
+  it('keeps a round going until every standing unit has had a turn', () => {
+    const down = makeUnit('d', 'p1', 'squire', { x: 0, y: 0 }, { patch: { hp: 0, downedRounds: 1 } });
+    const units = [down, makeUnit('a', 'p1', 'archer', { x: 1, y: 0 }), makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 })];
+    // 'e' hasn't acted this round yet, so no new round and no countdown.
+    const mid = advance({ ...idle(units), round: { n: 4, waiting: ['e'] } });
+    expect(mid.state.round.n).toBe(4);
+    expect(mid.state.units[0]!.downedRounds).toBe(1);
+    // Once e's turn ends, the next advance starts round 5.
+    const after = endTurn({ ...mid.state, turn: { phase: 'enemy', active: [{ unitId: 'e', moved: false, acted: false }] } }, 'e');
+    expect(after.events).toContainEqual({ type: 'round', n: 5 });
+    expect(after.state.units[0]!.downedRounds).toBe(0);
   });
 
   it('ends the battle when a side has nobody standing', () => {
     const units = [
       makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }),
-      makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 }, { patch: { hp: 0, downedTurns: 3 } }),
+      makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 }, { patch: { hp: 0, downedRounds: 3 } }),
     ];
     const r = advance(idle(units));
     expect(r.state.turn).toEqual({ phase: 'over', winner: 'player' });
@@ -74,6 +90,11 @@ describe('endTurn', () => {
   const phase = (moved: boolean, acted: boolean): GameState => ({
     grid: gridFromRows(flat(6, 6)),
     hazards: [],
+    round: { n: 1, waiting: [] },
+    inventory: {},
+    loot: [],
+    objective: { type: 'rout' },
+    casts: [],
     units: [
       makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: READY_CT } }),
       makeUnit('b', 'p1', 'archer', { x: 1, y: 0 }, { patch: { ct: READY_CT } }),
@@ -100,6 +121,11 @@ describe('predictOrder', () => {
     const state: GameState = {
       grid: gridFromRows(flat(6, 6)),
       hazards: [],
+      round: { n: 1, waiting: [] },
+      inventory: {},
+      loot: [],
+      objective: { type: 'rout' },
+      casts: [],
       units: [
         makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: 105 } }),
         makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 }, { patch: { ct: 90 } }),
@@ -114,9 +140,14 @@ describe('predictOrder', () => {
     const state: GameState = {
       grid: gridFromRows(flat(6, 6)),
       hazards: [],
+      round: { n: 1, waiting: [] },
+      inventory: {},
+      loot: [],
+      objective: { type: 'rout' },
+      casts: [],
       units: [
         makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }),
-        makeUnit('d', 'p1', 'squire', { x: 1, y: 0 }, { patch: { hp: 0, downedTurns: 2 } }),
+        makeUnit('d', 'p1', 'squire', { x: 1, y: 0 }, { patch: { hp: 0, downedRounds: 2 } }),
         makeUnit('g', 'enemy', 'squire', { x: 2, y: 0 }, { patch: { dead: true } }),
       ],
       turn: { phase: 'player', active: [] },
@@ -143,7 +174,7 @@ describe('turn start and rounds (M4)', () => {
     expect(advance(idle([m, enemy()])).state.units[0]!.mp).toBe(3);
   });
 
-  it('ages hazards at the start of each player phase', () => {
+  it('ages hazards at the start of each round', () => {
     const a = makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: 100 } });
     const hazards = [
       { id: 'oil' as const, pos: { x: 2, y: 2 }, rounds: 1, ownerId: 'p1' },

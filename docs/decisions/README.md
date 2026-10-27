@@ -22,3 +22,8 @@ One file per decision, numbered in the order they were made. `docs/DESIGN.md` is
 | [0012](0012-passives-reactions-and-first-hybrids.md) | Passives, reactions and the first hybrid kits | M4 |
 | [0013](0013-ignite-combo.md) | Ignite combo rules | M4 |
 | [0014](0014-small-test-battles.md) | Temporary: quick 2v2 test battles on a half-size map | M4 |
+| [0015](0015-run-structure-levels-and-hp.md) | Run structure, levelling and HP between battles | M5 |
+| [0016](0016-economy-gear-and-shrines.md) | Gold, gear, consumables, shop and shrines | M5 |
+| [0017](0017-objectives-charge-spells-and-statuses.md) | Objectives, charge-time spells and more statuses | M5 |
+| [0018](0018-rounds-and-the-downed-countdown.md) | Rounds, and 3 full rounds before a downed unit is lost | M5 |
+| [0019](0019-cautious-and-escort-ai.md) | Cautious and escort AI presets, and auto-play | M5 |

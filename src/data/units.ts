@@ -16,3 +16,9 @@ export const testSquad: RosterEntry[] = [
   { name: 'Cora', job: 'acolyte' },
   { name: 'Dain', job: 'squire' },
 ];
+
+/** Names for drafted and recruited units. */
+export const UNIT_NAMES = [
+  'Ada', 'Bram', 'Cora', 'Dain', 'Edda', 'Fenn', 'Greta', 'Hale', 'Isolde', 'Jory', 'Kestrel', 'Lute',
+  'Maren', 'Nils', 'Orla', 'Pell', 'Quill', 'Rook', 'Sabine', 'Tamsin', 'Ulric', 'Vesna', 'Wren', 'Yorick',
+];

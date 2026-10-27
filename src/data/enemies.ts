@@ -9,9 +9,3 @@ export const banditGroup: EnemyEntry[] = [
   { name: 'Poacher', job: 'archer', ai: 'berserker' },
   { name: 'Poacher', job: 'archer', ai: 'berserker' },
 ];
-
-/** TEMPORARY (decision 0014): two-unit group for quick 2v2 playtests. Delete with the glade map. */
-export const banditPair: EnemyEntry[] = [
-  { name: 'Bandit', job: 'squire', ai: 'berserker' },
-  { name: 'Poacher', job: 'archer', ai: 'berserker' },
-];

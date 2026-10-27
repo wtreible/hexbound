@@ -1,10 +1,13 @@
-import { hurt, resolveAbility, TRAP_EFFECTS } from './abilities';
+import { hurt, payAndFace, resolveAbility, TRAP_EFFECTS, type Resolution } from './abilities';
+import { areaTiles } from './combat';
+import { escapes } from './objectives';
 import { inRange } from './combat';
 import { facingOfStep, indexOf, inBounds, pathTo, reachable } from './grid';
-import { abilitiesOf, effectiveStats, grantJp } from './jobs';
+import { abilitiesOf, effectiveStats, grantJp, isSilenced } from './jobs';
+import { GEAR_SLOTS, itemAbilities } from './items';
 import type { Rng } from './rng';
 import { checkVictory, endTurn, pruneActive, type Step } from './turn';
-import type { ActiveUnit, GameEvent, GameState, Intent, Unit } from './types';
+import type { AbilityDef, ActiveUnit, Cast, GameEvent, GameState, Intent, Pos, Unit } from './types';
 import { findUnit, isEnemy, isStanding, unitAt } from './units';
 
 /** JP per action taken in battle (docs/DESIGN.md §6.2). */
@@ -67,18 +70,39 @@ export function applyIntent(state: GameState, intent: Intent, rng: Rng): IntentR
           events.push({ type: 'status', unitId: unit.id, status: fx.status, added: true });
         }
       }
-      const units = state.units.map((u) => (u.id === unit.id ? moved : u));
-      const next: GameState = { ...state, units, hazards, turn: mark({ moved: true }) };
-      return trap ? pruneActive(checkVictory({ state: next, events })) : { state: next, events };
+      let units = state.units.map((u) => (u.id === unit.id ? moved : u));
+      // A fallen ally's grave can be looted for one of its items; the rest is lost.
+      let loot = state.loot;
+      const grave = units.find((u) => u.dead && u.pos.x === to.x && u.pos.y === to.y && !isEnemy(u) && u.gear);
+      const taken = grave && !isEnemy(unit) && isStanding(moved) ? GEAR_SLOTS.map((s) => grave.gear![s]).find(Boolean) : undefined;
+      if (grave && taken) {
+        loot = [...loot, taken];
+        units = units.map((u) => (u.id === grave.id ? { ...u, gear: {} } : u));
+        events.push({ type: 'looted', unitId: unit.id, itemId: taken });
+      }
+      // Escape objective: stepping onto an exit leaves the battlefield.
+      const mover = units.find((u) => u.id === unit.id)!;
+      const escaped = escapes({ ...state, units }, mover);
+      if (escaped) {
+        units = units.map((u) => (u.id === unit.id ? { ...u, escaped: true } : u));
+        events.push({ type: 'escaped', unitId: unit.id });
+      }
+      const next: GameState = { ...state, units, hazards, loot, turn: mark({ moved: true }) };
+      return trap || escaped ? pruneActive(checkVictory({ state: next, events }), rng) : checkVictory({ state: next, events });
     }
     case 'act': {
       if (entry.acted) return { error: 'already acted' };
-      const ability = abilitiesOf(unit).find((a) => a.id === intent.abilityId);
+      // Job abilities, or a consumable from the party's shared inventory.
+      const item = itemAbilities(state.inventory).find((i) => i.ability.id === intent.abilityId);
+      const ability = abilitiesOf(unit).find((a) => a.id === intent.abilityId) ?? item?.ability;
       if (!ability) return { error: `${unit.name} can't use ${intent.abilityId}` };
       if ((ability.cost?.mp ?? 0) > unit.mp) return { error: 'not enough MP' };
       if ((ability.cost?.resolve ?? 0) > unit.resolve) return { error: 'not enough Resolve' };
+      if (isSilenced(unit) && ability.tags.includes('magic')) return { error: `${unit.name} is silenced` };
       if (!inRange(state.grid, ability, unit, intent.target)) return { error: 'target out of range' };
-      const r = resolveAbility(state, unit.id, ability, intent.target, rng);
+      const r: Resolution & { casts?: Cast[] } = ability.chargeTicks
+        ? beginCast(state, unit.id, ability, intent.target)
+        : resolveAbility(state, unit.id, ability, intent.target, rng);
       // JP for acting goes to the current job (docs/DESIGN.md §6.2).
       const amount = ACT_JP.min + rng.int(0, ACT_JP.max - ACT_JP.min);
       const units = r.units.map((u) => {
@@ -87,14 +111,31 @@ export function applyIntent(state: GameState, intent: Intent, rng: Rng): IntentR
         r.events.push({ type: 'jp', unitId: u.id, job: u.job, amount, rank: gain.rank, rankUp: gain.rankUp });
         return gain.unit;
       });
-      const next: GameState = { ...state, units, hazards: r.hazards, turn: mark({ acted: true }) };
-      return pruneActive(checkVictory({ state: next, events: r.events }));
+      const inventory = item ? { ...state.inventory, [item.itemId]: item.count - 1 } : state.inventory;
+      const next: GameState = { ...state, units, hazards: r.hazards, casts: r.casts ?? state.casts, inventory, turn: mark({ acted: true }) };
+      return pruneActive(checkVictory({ state: next, events: r.events }), rng);
     }
     case 'face': {
       const units = state.units.map((u) => (u.id === unit.id ? { ...u, facing: intent.facing } : u));
       return { state: { ...state, units }, events: [{ type: 'faced', unitId: unit.id, facing: intent.facing }] };
     }
     case 'wait':
-      return endTurn(state, unit.id);
+      return endTurn(state, unit.id, rng);
   }
+}
+
+/**
+ * Charge-time abilities (docs/DESIGN.md §5.3): pay now, then resolve on the
+ * targeted tiles after `chargeTicks` clock ticks. Units can walk out of the area.
+ */
+function beginCast(state: GameState, casterId: string, ability: AbilityDef, target: Pos): Resolution & { casts: Cast[] } {
+  const byId = new Map(state.units.map((u) => [u.id, u]));
+  const events: GameEvent[] = [];
+  payAndFace(byId, casterId, ability, target, events);
+  const from = byId.get(casterId)!.pos;
+  const tiles = areaTiles(state.grid, ability, from, target);
+  const ticks = ability.chargeTicks!;
+  events.push({ type: 'cast', unitId: casterId, abilityId: ability.id, tiles, ticks });
+  const casts: Cast[] = [...state.casts, { casterId, abilityId: ability.id, from, target, tiles, ticks }];
+  return { units: state.units.map((u) => byId.get(u.id)!), hazards: state.hazards, casts, events };
 }

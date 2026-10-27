@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ABILITIES } from '../src/data/abilities';
-import { DOWNED_TURNS, resolveAbility } from '../src/rules/abilities';
+import { DOWNED_ROUNDS, resolveAbility } from '../src/rules/abilities';
 import { gridFromRows } from '../src/rules/grid';
 import type { Rng } from '../src/rules/rng';
 import { effectiveStats } from '../src/rules/jobs';
@@ -35,7 +35,7 @@ describe('resolveAbility', () => {
     const s = makeUnit('s', 'p1', 'squire', { x: 2, y: 3 });
     const a = makeUnit('a', 'enemy', 'archer', { x: 2, y: 2 }, { patch: { hp: 3, statuses: [{ id: 'pinned', turns: 2 }] } });
     const r = resolveAbility({ grid: g, units: [s, a], hazards: [] }, 's', ABILITIES.strike!, a.pos, fixed(0));
-    expect(byId(r.units, 'a')).toMatchObject({ hp: 0, downedTurns: DOWNED_TURNS, statuses: [] });
+    expect(byId(r.units, 'a')).toMatchObject({ hp: 0, downedRounds: DOWNED_ROUNDS, statuses: [] });
     expect(r.events).toContainEqual({ type: 'damaged', unitId: 'a', amount: 3 });
     expect(r.events).toContainEqual({ type: 'downed', unitId: 'a' });
   });
@@ -84,16 +84,16 @@ describe('resolveAbility', () => {
     r = resolveAbility({ grid: g, units: [c, hurt], hazards: [] }, 'c', ABILITIES.purify!, hurt.pos, fixed(0.99));
     expect(byId(r.units, 's').statuses).toEqual([]);
 
-    const down = makeUnit('d', 'p1', 'squire', { x: 2, y: 3 }, { patch: { hp: 0, downedTurns: 2 } });
+    const down = makeUnit('d', 'p1', 'squire', { x: 2, y: 3 }, { patch: { hp: 0, downedRounds: 2 } });
     r = resolveAbility({ grid: g, units: [c, down], hazards: [] }, 'c', ABILITIES.revive!, down.pos, fixed(0.99));
     const revived = byId(r.units, 'd');
     expect(revived.hp).toBe(13); // 30% of 43
-    expect(revived.downedTurns).toBeUndefined();
+    expect(revived.downedRounds).toBeUndefined();
   });
 
   it('does not heal downed units or damage them further', () => {
     const c = makeUnit('c', 'p1', 'acolyte', { x: 2, y: 2 });
-    const down = makeUnit('d', 'p1', 'squire', { x: 2, y: 3 }, { patch: { hp: 0, downedTurns: 2 } });
+    const down = makeUnit('d', 'p1', 'squire', { x: 2, y: 3 }, { patch: { hp: 0, downedRounds: 2 } });
     expect(byId(resolveAbility({ grid: g, units: [c, down], hazards: [] }, 'c', ABILITIES.mend!, down.pos, fixed(0)).units, 'd').hp).toBe(0);
     const e = makeUnit('e', 'enemy', 'squire', { x: 2, y: 4 });
     const r = resolveAbility({ grid: g, units: [c, down, e], hazards: [] }, 'e', ABILITIES.strike!, down.pos, fixed(0));

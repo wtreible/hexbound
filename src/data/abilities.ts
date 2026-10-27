@@ -81,7 +81,7 @@ const defs: AbilityDef[] = [
     passive: [{ type: 'range', tag: 'bow', add: 1 }], tags: [], description: '+1 range with bows.',
   },
   {
-    id: 'rain-of-arrows', name: 'Rain of Arrows', kind: 'ultimate', cost: ULT,
+    id: 'rain-of-arrows', name: 'Rain of Arrows', kind: 'ultimate', cost: ULT, chargeTicks: 6,
     range: { min: 3, max: 6, los: false, heightBonus: true }, area: { shape: 'diamond', size: 2 }, affects: 'foes',
     effects: [{ type: 'damage', stat: 'atk', power: 1 }],
     tags: ['physical', 'bow'], description: 'Arrows blanket a wide area, sparing allies.',
@@ -114,10 +114,10 @@ const defs: AbilityDef[] = [
     passive: [{ type: 'mp-regen', amount: 3 }], tags: [], description: 'Recover 3 MP at the start of each turn.',
   },
   {
-    id: 'meteor', name: 'Meteor', kind: 'ultimate', cost: ULT,
+    id: 'meteor', name: 'Meteor', kind: 'ultimate', cost: ULT, chargeTicks: 8,
     range: { min: 2, max: 5, los: false }, area: { shape: 'diamond', size: 1 },
     effects: [{ type: 'damage', stat: 'mag', power: 2.2, element: 'fire' }],
-    tags: ['magic', 'fire'], description: 'A falling star. Hits everything in the area, allies included.',
+    tags: ['magic', 'fire'], description: 'A falling star that lands after a delay. Hits everything in the area, allies included.',
   },
 
   // --- Acolyte ---
@@ -145,8 +145,8 @@ const defs: AbilityDef[] = [
   {
     id: 'sanctuary', name: 'Sanctuary', kind: 'ultimate', cost: ULT,
     range: SELF, area: { shape: 'diamond', size: 2 }, affects: 'allies',
-    effects: [{ type: 'heal', power: 1 }, { type: 'cleanse' }],
-    tags: ['magic', 'holy'], description: 'Heal and cleanse every ally within 2 tiles.',
+    effects: [{ type: 'heal', power: 1 }, { type: 'cleanse' }, { type: 'status', status: 'regen', chance: 1, duration: 3 }],
+    tags: ['magic', 'holy'], description: 'Heal, cleanse and grant Regen to every ally within 2 tiles.',
   },
 
   // --- Thief ---
@@ -221,8 +221,11 @@ const defs: AbilityDef[] = [
   {
     id: 'smite', name: 'Smite', kind: 'action', cost: { mp: 5 },
     range: { min: 1, max: 2, los: false }, area: SINGLE,
-    effects: [{ type: 'damage', stat: 'mag', power: 1.4, element: 'holy' }],
-    tags: ['magic', 'holy'], description: 'Holy light strikes a nearby foe.',
+    effects: [
+      { type: 'damage', stat: 'mag', power: 1.4, element: 'holy' },
+      { type: 'status', status: 'silence', chance: 0.35, duration: 2 },
+    ],
+    tags: ['magic', 'holy'], description: 'Holy light strikes a nearby foe and may silence it.',
   },
   {
     id: 'consecrate', name: 'Consecrate', kind: 'action', cost: { mp: 6 },
@@ -306,7 +309,7 @@ const defs: AbilityDef[] = [
     passive: [{ type: 'stat', stat: 'evade', add: 10 }], tags: [], description: '+10 evade.',
   },
   {
-    id: 'stasis', name: 'Stasis', kind: 'ultimate', cost: ULT,
+    id: 'stasis', name: 'Stasis', kind: 'ultimate', cost: ULT, chargeTicks: 5,
     range: { min: 1, max: 4, los: false }, area: { shape: 'diamond', size: 1 }, affects: 'foes',
     effects: [{ type: 'ct', delta: -100 }],
     tags: ['magic'], description: 'Freeze time around foes: -100 CT.',
@@ -367,8 +370,11 @@ const defs: AbilityDef[] = [
   {
     id: 'poison-cloud', name: 'Poison Cloud', kind: 'action', cost: { mp: 6 },
     range: { min: 1, max: 3, los: false }, area: { shape: 'diamond', size: 1 },
-    effects: [{ type: 'status', status: 'poison', chance: 0.9, duration: 3 }],
-    tags: ['throw'], description: 'A cloud that poisons everyone inside, allies included.',
+    effects: [
+      { type: 'status', status: 'poison', chance: 0.9, duration: 3 },
+      { type: 'status', status: 'blind', chance: 0.5, duration: 2 },
+    ],
+    tags: ['throw'], description: 'A cloud that poisons, and may blind, everyone inside, allies included.',
   },
   {
     id: 'sabotage', name: 'Sabotage', kind: 'action', cost: { mp: 3 }, range: MELEE, area: SINGLE,
@@ -383,13 +389,39 @@ const defs: AbilityDef[] = [
     passive: [{ type: 'stat', stat: 'evade', add: 10 }], tags: [], description: '+10 evade.',
   },
   {
-    id: 'scorched-earth', name: 'Scorched Earth', kind: 'ultimate', cost: ULT,
+    id: 'scorched-earth', name: 'Scorched Earth', kind: 'ultimate', cost: ULT, chargeTicks: 6,
     range: { min: 1, max: 3, los: false }, area: { shape: 'diamond', size: 2 }, affects: 'foes',
     effects: [
       { type: 'damage', stat: 'mag', power: 0.8, element: 'fire' },
       { type: 'hazard', hazard: 'fire', rounds: 2 },
     ],
     tags: ['magic', 'fire'], description: 'Set a wide area ablaze for two rounds.',
+  },
+
+  // --- Consumables (src/data/items.ts): any unit can use one from the shared inventory ---
+  {
+    id: 'use-potion', name: 'Potion', kind: 'action', cost: { item: 'potion' },
+    range: { min: 0, max: 1, los: false }, area: SINGLE,
+    effects: [{ type: 'heal', flat: 30 }],
+    tags: ['item', 'throw'], description: 'Restore 30 HP.',
+  },
+  {
+    id: 'use-ether', name: 'Ether', kind: 'action', cost: { item: 'ether' },
+    range: { min: 0, max: 1, los: false }, area: SINGLE,
+    effects: [{ type: 'mp', amount: 15 }],
+    tags: ['item', 'throw'], description: 'Restore 15 MP.',
+  },
+  {
+    id: 'use-antidote', name: 'Antidote', kind: 'action', cost: { item: 'antidote' },
+    range: { min: 0, max: 1, los: false }, area: SINGLE,
+    effects: [{ type: 'cleanse' }],
+    tags: ['item', 'throw'], description: 'Remove all statuses.',
+  },
+  {
+    id: 'use-phoenix', name: 'Phoenix Feather', kind: 'action', cost: { item: 'phoenix-feather' },
+    range: { min: 1, max: 1, los: false }, area: SINGLE,
+    effects: [{ type: 'revive', hpPct: 0.3 }],
+    tags: ['item', 'throw'], description: 'Revive a downed ally with 30% HP.',
   },
 
   // --- Cross-player combos (docs/DESIGN.md §6.6) ---

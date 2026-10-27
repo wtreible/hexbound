@@ -11,7 +11,8 @@ import { isDowned, isEnemy, isStanding, sameSide, unitAt } from './units';
 // never per-ability code. Reactions (Counter, Cover) and cross-player combos
 // (Ignite) also resolve here.
 
-export const DOWNED_TURNS = 3;
+/** Full rounds a downed unit can wait for a revive before it's lost for good. */
+export const DOWNED_ROUNDS = 3;
 export const MAX_RESOLVE = 100;
 
 export type Board = { grid: Grid; units: readonly Unit[]; hazards: readonly Hazard[] };
@@ -29,7 +30,7 @@ export function hurt(unit: Unit, amount: number, source: 'poison' | 'fire' | 'tr
   events.push({ type: 'damaged', unitId: unit.id, amount: dealt, source });
   if (dealt < unit.hp) return { ...unit, hp: unit.hp - dealt };
   events.push({ type: 'downed', unitId: unit.id });
-  return { ...unit, hp: 0, ct: 0, downedTurns: DOWNED_TURNS, statuses: [] };
+  return { ...unit, hp: 0, ct: 0, downedRounds: DOWNED_ROUNDS, statuses: [] };
 }
 
 /** Resolve gained by both sides of a hit: half the damage as a % of the victim's max HP. */
@@ -39,7 +40,14 @@ export function resolveGain(amount: number, victimMaxHp: number): number {
 
 const COMBOS = Object.values(ABILITIES).filter((a) => a.kind === 'combo');
 
-export function resolveAbility(board: Board, casterId: string, ability: AbilityDef, target: Pos, rng: Rng): Resolution {
+export type ResolveOptions = {
+  /** Where the area is measured from: the caster's tile when a charge-time cast began. */
+  from?: Pos;
+  /** Costs were paid when the cast began (charge-time abilities). */
+  paid?: boolean;
+};
+
+export function resolveAbility(board: Board, casterId: string, ability: AbilityDef, target: Pos, rng: Rng, opts: ResolveOptions = {}): Resolution {
   const { grid } = board;
   const byId = new Map(board.units.map((u) => [u.id, u]));
   const hazards = new Map(board.hazards.map((h) => [indexOf(grid, h.pos), h]));
@@ -48,18 +56,8 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
   const get = (id: string) => byId.get(id)!;
   const all = () => [...byId.values()];
 
-  let caster = get(casterId);
-  caster = {
-    ...caster,
-    mp: caster.mp - (ability.cost?.mp ?? 0),
-    resolve: caster.resolve - (ability.cost?.resolve ?? 0),
-  };
-  if (target.x !== caster.pos.x || target.y !== caster.pos.y) {
-    caster = { ...caster, facing: facingOfStep(caster.pos, stepToward(caster.pos, target)) };
-    events.push({ type: 'faced', unitId: caster.id, facing: caster.facing });
-  }
-  put(caster);
-  events.push({ type: 'acted', unitId: caster.id, abilityId: ability.id, target });
+  if (!opts.paid) payAndFace(byId, casterId, ability, target, events);
+  const origin = opts.from ?? get(casterId).pos;
 
   /** Deals damage and hands out Resolve to both sides (plus Arcane Edge MP to the attacker). */
   const damage = (attackerId: string, victimId: string, amount: number) => {
@@ -69,7 +67,7 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
     const resolve = Math.min(MAX_RESOLVE, v.resolve + gain);
     events.push({ type: 'damaged', unitId: victimId, amount: dealt });
     if (dealt >= v.hp) {
-      put({ ...v, hp: 0, downedTurns: DOWNED_TURNS, statuses: [], resolve });
+      put({ ...v, hp: 0, downedRounds: DOWNED_ROUNDS, statuses: [], resolve });
       events.push({ type: 'downed', unitId: victimId });
     } else {
       put({ ...v, hp: v.hp - dealt, resolve });
@@ -111,7 +109,7 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
     const damaged: string[] = [];
     for (const initial of targets) {
       const id = initial.id;
-      if (isHostile(a) && isStanding(initial) && rng.next() >= hitChance(a, get(sourceId).pos, initial)) {
+      if (isHostile(a) && isStanding(initial) && rng.next() >= hitChance(a, get(sourceId), initial)) {
         events.push({ type: 'missed', unitId: id });
         continue;
       }
@@ -154,7 +152,7 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
           }
           case 'revive': {
             if (!isDowned(u)) break;
-            const { downedTurns: _, ...rest } = u;
+            const { downedRounds: _, ...rest } = u;
             put({ ...rest, hp: Math.max(1, Math.round(effectiveStats(u).hp * effect.hpPct)) });
             events.push({ type: 'revived', unitId: id });
             break;
@@ -202,8 +200,8 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
     return damaged;
   };
 
-  const tiles = areaTiles(grid, ability, caster.pos, target);
-  const damaged = run(ability, casterId, caster.pos, target);
+  const tiles = areaTiles(grid, ability, origin, target);
+  const damaged = run(ability, casterId, origin, target);
 
   // Counter: a melee hit on a single unit with Counter gets its basic attack back.
   const struck = damaged.length === 1 ? get(damaged[0]!) : undefined;
@@ -211,7 +209,7 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
     if (manhattan(struck.pos, get(casterId).pos) === 1) {
       const basic = abilityById(jobOf(struck).attack);
       events.push({ type: 'countered', unitId: struck.id, targetId: casterId });
-      if (rng.next() >= hitChance(basic, struck.pos, get(casterId))) {
+      if (rng.next() >= hitChance(basic, struck, get(casterId))) {
         events.push({ type: 'missed', unitId: casterId });
       } else {
         for (const e of basic.effects) if (e.type === 'damage') damage(struck.id, casterId, damageAmount(grid, e, struck, get(casterId)));
@@ -233,6 +231,21 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
   }
 
   return { units: board.units.map((u) => get(u.id)), hazards: [...hazards.values()], events };
+}
+
+/**
+ * Spends the ability's MP, Resolve and turns the caster to face the target.
+ * Consumable counts are the reducer's job (they live on the battle, not the unit).
+ */
+export function payAndFace(byId: Map<string, Unit>, casterId: string, ability: AbilityDef, target: Pos, events: GameEvent[]): void {
+  let caster = byId.get(casterId)!;
+  caster = { ...caster, mp: caster.mp - (ability.cost?.mp ?? 0), resolve: caster.resolve - (ability.cost?.resolve ?? 0) };
+  if (target.x !== caster.pos.x || target.y !== caster.pos.y) {
+    caster = { ...caster, facing: facingOfStep(caster.pos, stepToward(caster.pos, target)) };
+    events.push({ type: 'faced', unitId: caster.id, facing: caster.facing });
+  }
+  byId.set(casterId, caster);
+  events.push({ type: 'acted', unitId: caster.id, abilityId: ability.id, target });
 }
 
 /** Combos need two different human players: the caster and whoever laid the hazard. */

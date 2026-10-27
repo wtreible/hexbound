@@ -3,7 +3,7 @@ import { ABILITIES } from '../src/data/abilities';
 import { areaTiles, attackSide, damageAmount, hitChance, inRange, previewAct } from '../src/rules/combat';
 import { gridFromRows } from '../src/rules/grid';
 import { effectiveStats } from '../src/rules/jobs';
-import type { Effect } from '../src/rules/types';
+import type { Effect, Unit } from '../src/rules/types';
 import { flat, makeUnit } from './fixtures';
 
 const strike = ABILITIES.strike!;
@@ -70,15 +70,20 @@ describe('damageAmount', () => {
 
 describe('hitChance', () => {
   const target = makeUnit('t', 'enemy', 'archer', { x: 2, y: 2 }, { facing: 2 });
+  const at = (x: number, y: number, statuses: Unit['statuses'] = []) => makeUnit('s', 'p1', 'squire', { x, y }, { patch: { statuses } });
   it('is 90% minus evade from the front, improved by facing', () => {
-    expect(hitChance(strike, { x: 2, y: 3 }, target)).toBe(0.85);
-    expect(hitChance(strike, { x: 3, y: 2 }, target)).toBe(1);
-    expect(hitChance(strike, { x: 2, y: 1 }, target)).toBe(1);
+    expect(hitChance(strike, at(2, 3), target)).toBe(0.85);
+    expect(hitChance(strike, at(3, 2), target)).toBe(1);
+    expect(hitChance(strike, at(2, 1), target)).toBe(1);
+  });
+
+  it('drops 40 points when the attacker is blind', () => {
+    expect(hitChance(strike, at(2, 3, [{ id: 'blind', turns: 2 }]), target)).toBe(0.45);
   });
 
   it('always lands for magic and non-hostile abilities', () => {
-    expect(hitChance(ABILITIES.mend!, { x: 2, y: 3 }, target)).toBe(1);
-    expect(hitChance(ABILITIES.guard!, { x: 2, y: 3 }, target)).toBe(1);
+    expect(hitChance(ABILITIES.mend!, at(2, 3), target)).toBe(1);
+    expect(hitChance(ABILITIES.guard!, at(2, 3), target)).toBe(1);
   });
 });
 

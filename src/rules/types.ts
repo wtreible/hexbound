@@ -22,11 +22,12 @@ export type Grid = { width: number; depth: number; tiles: Tile[] };
 
 export type JobId = string;
 export type AbilityId = string;
-export type StatusId = 'guard' | 'pinned' | 'slow' | 'haste' | 'veil' | 'poison';
+export type StatusId = 'guard' | 'pinned' | 'slow' | 'haste' | 'veil' | 'poison' | 'blind' | 'silence' | 'regen';
 /** Things left on tiles: oil (fuel for Ignite), fire (burns at turn start), trap and mine (trigger on entry). */
 export type HazardId = 'oil' | 'fire' | 'trap' | 'mine';
 export type Element = 'fire' | 'ice' | 'lightning' | 'holy' | 'dark';
 export type EquipTag = string;
+export type GearSlot = 'weapon' | 'armor' | 'accessory';
 
 export type JobDef = {
   id: JobId;
@@ -132,6 +133,8 @@ export type Unit = {
   secondary?: JobId;
   passive?: AbilityId;
   ultimate?: AbilityId;
+  /** Equipped item ids by slot (src/data/items.ts). */
+  gear?: Partial<Record<GearSlot, string>>;
   hp: number;
   mp: number;
   ct: number;
@@ -140,10 +143,15 @@ export type Unit = {
   pos: Pos;
   facing: Facing;
   statuses: { id: StatusId; turns: number }[];
-  /** Set while downed (0 HP); counts down on each of the unit's would-be turns. */
-  downedTurns?: number;
+  /**
+   * Set while downed (0 HP): full rounds left to revive the unit. Counts down
+   * as each round starts; a round that starts at 0 makes it a grave.
+   */
+  downedRounds?: number;
   /** Permanently lost; left on the board as a grave marker. */
   dead?: boolean;
+  /** Left the battlefield through an exit (Escape objective): safe, but out of the fight. */
+  escaped?: boolean;
 };
 
 export type ActiveUnit = { unitId: string; moved: boolean; acted: boolean };
@@ -152,7 +160,36 @@ export type TurnState =
   | { phase: 'player' | 'enemy'; active: ActiveUnit[] }
   | { phase: 'over'; winner: 'player' | 'enemy' };
 
-export type GameState = { grid: Grid; units: Unit[]; turn: TurnState; hazards: Hazard[] };
+/**
+ * A round ends once every unit that was standing when it began has taken a
+ * turn (or gone down). Downed counters and hazards run on rounds.
+ */
+export type RoundState = { n: number; waiting: string[] };
+
+/** What a battle is won by (docs/DESIGN.md §5.2). Every objective is also won by routing the enemy. */
+export type Objective =
+  | { type: 'rout' }
+  | { type: 'leader'; unitId: string }
+  | { type: 'escort'; unitId: string; exits: Pos[] }
+  | { type: 'hold'; tiles: Pos[]; rounds: number; held: number }
+  | { type: 'escape'; exits: Pos[] };
+
+/** A charge-time ability waiting to resolve on its tiles (docs/DESIGN.md §5.3). */
+export type Cast = { casterId: string; abilityId: AbilityId; from: Pos; target: Pos; tiles: Pos[]; ticks: number };
+
+export type GameState = {
+  grid: Grid;
+  objective: Objective;
+  casts: Cast[];
+  units: Unit[];
+  turn: TurnState;
+  hazards: Hazard[];
+  round: RoundState;
+  /** The party's shared consumables, by item id; used up in battle. */
+  inventory: Record<string, number>;
+  /** Items looted from graves this battle; they join the stash afterwards. */
+  loot: string[];
+};
 
 export type Intent =
   | { type: 'move'; unitId: string; to: Pos }
@@ -171,7 +208,7 @@ export type GameEvent =
   | { type: 'pushed'; unitId: string; from: Pos; to: Pos }
   | { type: 'downed'; unitId: string }
   | { type: 'revived'; unitId: string }
-  | { type: 'down-tick'; unitId: string; turnsLeft: number }
+  | { type: 'down-tick'; unitId: string; roundsLeft: number }
   | { type: 'died'; unitId: string }
   | { type: 'turn-ended'; unitId: string }
   | { type: 'mp'; unitId: string; amount: number }
@@ -183,5 +220,12 @@ export type GameEvent =
   | { type: 'covered'; unitId: string; forId: string }
   | { type: 'combo'; comboId: string; pos: Pos }
   | { type: 'jp'; unitId: string; job: JobId; amount: number; rank: number; rankUp: boolean }
+  | { type: 'round'; n: number }
+  | { type: 'cast'; unitId: string; abilityId: AbilityId; tiles: Pos[]; ticks: number }
+  | { type: 'cast-resolved'; unitId: string; abilityId: AbilityId }
+  | { type: 'cast-fizzled'; unitId: string; abilityId: AbilityId }
+  | { type: 'escaped'; unitId: string }
+  | { type: 'held'; held: number; rounds: number }
+  | { type: 'looted'; unitId: string; itemId: string }
   | { type: 'phase'; phase: 'player' | 'enemy'; unitIds: string[] }
   | { type: 'battle-over'; winner: 'player' | 'enemy' };

@@ -1,6 +1,6 @@
 # 0011. Hazards, new statuses and traps
 
-- **Status:** Accepted
+- **Status:** Accepted; the round definition is superseded by 0018
 - **Date:** 2026-10-27
 - **Milestone:** M4
 

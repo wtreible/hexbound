@@ -1,6 +1,6 @@
 # 0006. Downed units, knockback and the M2 effect set
 
-- **Status:** Accepted
+- **Status:** Accepted; the downed countdown is superseded by 0018
 - **Date:** 2026-10-27
 - **Milestone:** M2
 

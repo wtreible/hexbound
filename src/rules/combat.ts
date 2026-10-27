@@ -8,6 +8,7 @@ export const HEIGHT_DAMAGE_PER_TIER = 0.1;
 export const HEIGHT_DAMAGE_CAP = 0.3;
 export const PHYSICAL_BASE_HIT = 90;
 export const MIN_HIT = 5;
+export const BLIND_PENALTY = 40;
 export const FACING_BONUS = {
   front: { hit: 0, damage: 0 },
   side: { hit: 15, damage: 0.1 },
@@ -114,12 +115,13 @@ function sideOf(ability: AbilityDef, attackerPos: Pos, target: Unit): Side {
   return forced ? 'back' : attackSide(attackerPos, target);
 }
 
-/** Chance in [0, 1] that a hostile ability connects with the target. */
-export function hitChance(ability: AbilityDef, attackerPos: Pos, target: Unit): number {
+/** Chance in [0, 1] that a hostile ability connects with the target. Blind attackers lose 40 points on physical hits. */
+export function hitChance(ability: AbilityDef, attacker: Unit, target: Unit): number {
   if (!isHostile(ability) || ability.tags.includes('magic')) return 1;
-  const side = sideOf(ability, attackerPos, target);
+  const side = sideOf(ability, attacker.pos, target);
   const evade = effectiveStats(target).evade;
-  const pct = PHYSICAL_BASE_HIT + FACING_BONUS[side].hit - evade;
+  const blind = attacker.statuses.some((s) => s.id === 'blind') ? BLIND_PENALTY : 0;
+  const pct = PHYSICAL_BASE_HIT + FACING_BONUS[side].hit - evade - blind;
   return Math.min(100, Math.max(MIN_HIT, pct)) / 100;
 }
 
@@ -177,7 +179,7 @@ export function previewAct(grid: Grid, units: readonly Unit[], caster: Unit, abi
     heal = Math.min(heal, effectiveStats(unit).hp - unit.hp);
     out.push({
       unit,
-      hitChance: isStanding(unit) ? hitChance(ability, caster.pos, unit) : 1,
+      hitChance: isStanding(unit) ? hitChance(ability, caster, unit) : 1,
       damage,
       heal,
       revive,

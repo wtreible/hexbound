@@ -20,6 +20,11 @@ export function battle(rows: string[], units: Unit[], active: string[], phase: '
     grid: gridFromRows(rows),
     units,
     hazards,
+    round: { n: 1, waiting: units.map((u) => u.id) },
+    inventory: {},
+    loot: [],
+    objective: { type: 'rout' },
+    casts: [],
     turn: { phase, active: active.map((unitId) => ({ unitId, moved: false, acted: false })) },
   };
 }

@@ -1,4 +1,5 @@
 import { ABILITIES } from '../data/abilities';
+import { ITEMS } from '../data/items';
 import { JOBS } from '../data/jobs';
 import type { AbilityDef, Facing, JobDef, JobId, PassiveEffect, Pos, Stat, Unit } from './types';
 
@@ -39,7 +40,7 @@ export const hasPassive = (unit: Unit, type: PassiveEffect['type']): boolean => 
 
 const MULTIPLIED: Stat[] = ['hp', 'mp', 'atk', 'mag', 'def', 'res', 'spd', 'evade'];
 
-/** Stats after job multipliers, the equipped passive and statuses. */
+/** Stats after job multipliers, the equipped passive, gear and statuses. */
 export function effectiveStats(unit: Unit): Record<Stat, number> {
   const j = jobOf(unit);
   const s = { ...unit.base };
@@ -47,6 +48,9 @@ export function effectiveStats(unit: Unit): Record<Stat, number> {
   s.move = j.move + unit.base.move;
   s.jump = j.jump + unit.base.jump;
   for (const p of passiveEffects(unit)) if (p.type === 'stat') s[p.stat] += p.add;
+  for (const id of Object.values(unit.gear ?? {})) {
+    for (const [stat, add] of Object.entries((id && ITEMS[id]?.stats) || {})) s[stat as Stat] += add;
+  }
   for (const status of unit.statuses) {
     if (status.id === 'guard') s.def = Math.round(s.def * 1.5);
     if (status.id === 'pinned') s.move = Math.max(0, s.move - 2);
@@ -104,6 +108,13 @@ export function canAfford(unit: Unit, a: AbilityDef): boolean {
   return (a.cost?.mp ?? 0) <= unit.mp && (a.cost?.resolve ?? 0) <= unit.resolve;
 }
 
+export const isSilenced = (unit: Unit): boolean => unit.statuses.some((s) => s.id === 'silence');
+
+/** Affordable, and not magic while silenced. */
+export function canUse(unit: Unit, a: AbilityDef): boolean {
+  return canAfford(unit, a) && !(isSilenced(unit) && a.tags.includes('magic'));
+}
+
 // --- Progression and loadout (changed only at camp) ---
 
 /** Every base job, plus hybrids whose parent jobs are both mastered. */
@@ -159,6 +170,19 @@ export function grantJp(unit: Unit, amount: number, jobId: JobId = unit.job): Jp
   return { unit: next, rank, rankUp: rank > before };
 }
 
+/**
+ * Gains one level in the current job: base stats grow by its growth table
+ * (docs/DESIGN.md §5.4). Current HP and MP rise by however much their maximums did.
+ */
+export function levelUp(unit: Unit): Unit {
+  const base = { ...unit.base };
+  for (const [stat, add] of Object.entries(jobOf(unit).growth)) base[stat as Stat] += add;
+  const before = effectiveStats(unit);
+  const next: Unit = { ...unit, level: unit.level + 1, base };
+  const after = effectiveStats(next);
+  return { ...next, hp: unit.hp + Math.max(0, after.hp - before.hp), mp: unit.mp + Math.max(0, after.mp - before.mp) };
+}
+
 export type NewUnit = {
   id: string;
   ownerId: string;
@@ -167,11 +191,15 @@ export type NewUnit = {
   base: Record<Stat, number>;
   pos: Pos;
   facing: Facing;
+  /** Starting level, grown in the starting job. Default 1. */
+  level?: number;
 };
 
-/** A fresh level-1 unit at full HP and MP with no JP. */
+/** A fresh unit at full HP and MP with no JP. */
 export function createUnit(spec: NewUnit): Unit {
-  const unit: Unit = { ...spec, level: 1, jp: { [spec.job]: 0 }, hp: 0, mp: 0, ct: 0, resolve: 0, statuses: [] };
+  const { level = 1, ...rest } = spec;
+  let unit: Unit = { ...rest, level: 1, jp: { [spec.job]: 0 }, hp: 0, mp: 0, ct: 0, resolve: 0, statuses: [] };
+  for (let l = 1; l < level; l++) unit = levelUp(unit);
   const stats = effectiveStats(unit);
   return { ...unit, hp: stats.hp, mp: stats.mp };
 }

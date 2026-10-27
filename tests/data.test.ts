@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ABILITIES } from '../src/data/abilities';
 import { JOBS } from '../src/data/jobs';
 import { glade } from '../src/data/maps/glade';
-import { meadow } from '../src/data/maps/meadow';
+import { BATTLE_MAPS } from '../src/data/maps';
 import { gridFromRows, tileAt } from '../src/rules/grid';
 
 // Content is pure data, so a typo only shows up at runtime. Catch it here.
@@ -34,10 +34,25 @@ describe('job and ability data', () => {
 });
 
 describe('map templates', () => {
-  it.each([meadow, glade])('$id has distinct, walkable spawn tiles', (map) => {
+  it.each([...BATTLE_MAPS, glade])('$id has distinct, walkable spawn tiles', (map) => {
     const grid = gridFromRows(map.rows);
     const all = [...map.spawns.player, ...map.spawns.enemy];
     for (const p of all) expect(tileAt(grid, p)?.walkable).toBe(true);
     expect(new Set(all.map((p) => `${p.x},${p.y}`)).size).toBe(all.length);
+  });
+
+  it.each(BATTLE_MAPS)('$id fits a full squad and an elite group', (map) => {
+    expect(map.spawns.player.length).toBeGreaterThanOrEqual(4);
+    expect(map.spawns.enemy.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it.each(BATTLE_MAPS)('$id marks walkable exits, hold tiles and an escort start off the spawns', (map) => {
+    const grid = gridFromRows(map.rows);
+    const marks = [...(map.exits ?? []), ...(map.hold ?? []), map.vip!];
+    expect(map.exits?.length).toBeGreaterThan(0);
+    expect(map.hold?.length).toBeGreaterThan(0);
+    for (const p of marks) expect(tileAt(grid, p)?.walkable).toBe(true);
+    const spawns = new Set([...map.spawns.player, ...map.spawns.enemy].map((p) => `${p.x},${p.y}`));
+    for (const p of marks) expect(spawns.has(`${p.x},${p.y}`)).toBe(false);
   });
 });

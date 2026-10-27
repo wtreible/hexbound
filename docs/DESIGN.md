@@ -105,6 +105,8 @@ Lobby → Squad draft → Run map (≈12 nodes, 3 acts) → Boss → Results →
   - **Shrine:** a random event with a choice.
   - **Boss:** end of each act.
 
+**As built:** map shape, node weights, HP carry-over, levelling, encounters and autosave are in [decision 0015](decisions/0015-run-structure-levels-and-hp.md); gold, gear, the shop and shrines in [0016](decisions/0016-economy-gear-and-shrines.md); objectives, charge-time spells and statuses in [0017](decisions/0017-objectives-charge-spells-and-statuses.md); rounds and the downed countdown in [0018](decisions/0018-rounds-and-the-downed-countdown.md).
+
 ### 5.2 Battle flow
 1. **Deploy phase:** players place units on highlighted start tiles.
 2. **Timeline:** every unit has `ct` (charge time). Each tick adds `speed` to `ct`. A unit at ≥ 100 is ready.
