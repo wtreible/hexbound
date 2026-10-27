@@ -1,6 +1,6 @@
 import { previewAct, targetTiles } from './combat';
 import { distanceMap, facingOfStep, indexOf, manhattan, reachable, stepToward } from './grid';
-import { abilitiesOf, effectiveStats } from './jobs';
+import { abilitiesOf, canAfford, effectiveStats } from './jobs';
 import type { Facing, GameState, Intent, Pos, Unit } from './types';
 import { findUnit, isStanding, sameSide } from './units';
 
@@ -37,8 +37,8 @@ export function planTurn(state: GameState, unitId: string, weights: AiWeights = 
     if (!node.canStop) continue;
     const moved: Unit = { ...unit, pos: node.pos };
     for (const ability of abilitiesOf(unit)) {
-      if ((ability.cost?.mp ?? 0) > unit.mp) continue;
-      for (const target of targetTiles(grid, ability, node.pos)) {
+      if (!canAfford(unit, ability)) continue;
+      for (const target of targetTiles(grid, ability, moved)) {
         let score = 0;
         for (const p of previewAct(grid, state.units, moved, ability, target)) {
           const ally = sameSide(p.unit, unit);

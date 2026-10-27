@@ -1,7 +1,7 @@
 import { FACING_STEPS, inBounds, manhattan, stepToward, tileAt } from './grid';
-import { effectiveStats } from './jobs';
+import { effectiveStats, healMultiplier, rangeBonus } from './jobs';
 import type { AbilityDef, Effect, Grid, Pos, Unit } from './types';
-import { isDowned, isStanding, unitAt } from './units';
+import { isDowned, isStanding, sameSide, unitAt } from './units';
 
 // Combat math (docs/DESIGN.md §5.3). Starting values; tune later.
 export const HEIGHT_DAMAGE_PER_TIER = 0.1;
@@ -33,25 +33,27 @@ export function heightAbove(grid: Grid, from: Pos, to: Pos): number {
   return (tileAt(grid, from)?.height ?? 0) - (tileAt(grid, to)?.height ?? 0);
 }
 
-export function maxRange(grid: Grid, ability: AbilityDef, from: Pos, to: Pos): number {
-  const bonus = ability.range.heightBonus ? Math.floor(Math.max(0, heightAbove(grid, from, to)) / 2) : 0;
-  return ability.range.max + bonus;
+/** Max range from the caster's tile: base, plus passives (Eagle Eye), plus the bow height bonus. */
+export function maxRange(grid: Grid, ability: AbilityDef, caster: Unit, to: Pos): number {
+  const height = ability.range.heightBonus ? Math.floor(Math.max(0, heightAbove(grid, caster.pos, to)) / 2) : 0;
+  return ability.range.max + rangeBonus(caster, ability) + height;
 }
 
-// Line of sight is not checked yet (docs/DESIGN.md: rules/grid.ts, later milestone).
-export function inRange(grid: Grid, ability: AbilityDef, from: Pos, target: Pos): boolean {
+// Line of sight is not checked yet (decision 0006).
+export function inRange(grid: Grid, ability: AbilityDef, caster: Unit, target: Pos): boolean {
   if (!inBounds(grid, target)) return false;
-  const d = manhattan(from, target);
-  return d >= ability.range.min && d <= maxRange(grid, ability, from, target);
+  const d = manhattan(caster.pos, target);
+  return d >= ability.range.min && d <= maxRange(grid, ability, caster, target);
 }
 
-/** Every tile the ability can be aimed at from `from`. */
-export function targetTiles(grid: Grid, ability: AbilityDef, from: Pos): Pos[] {
+/** Every tile the ability can be aimed at from the caster's tile. */
+export function targetTiles(grid: Grid, ability: AbilityDef, caster: Unit): Pos[] {
   const out: Pos[] = [];
-  const r = ability.range.max + (ability.range.heightBonus ? 10 : 0);
-  for (let y = from.y - r; y <= from.y + r; y++) {
-    for (let x = from.x - r; x <= from.x + r; x++) {
-      if (inRange(grid, ability, from, { x, y })) out.push({ x, y });
+  const { x: cx, y: cy } = caster.pos;
+  const r = ability.range.max + rangeBonus(caster, ability) + (ability.range.heightBonus ? 10 : 0);
+  for (let y = cy - r; y <= cy + r; y++) {
+    for (let x = cx - r; x <= cx + r; x++) {
+      if (inRange(grid, ability, caster, { x, y })) out.push({ x, y });
     }
   }
   return out;
@@ -94,15 +96,28 @@ export function areaTiles(grid: Grid, ability: AbilityDef, from: Pos, target: Po
   return out.filter((p) => inBounds(grid, p));
 }
 
-/** Abilities that can miss: anything that damages or pushes. */
+/** Abilities that can miss: anything that damages, pushes, steals MP or drains CT. */
 export function isHostile(ability: AbilityDef): boolean {
-  return ability.effects.some((e) => e.type === 'damage' || e.type === 'push');
+  return ability.effects.some(
+    (e) => e.type === 'damage' || e.type === 'push' || (e.type === 'mp' && e.steal) || (e.type === 'ct' && e.delta < 0),
+  );
+}
+
+/** Whether a unit in the area is affected, given the ability's `affects` filter. */
+export function affects(ability: AbilityDef, caster: Unit, unit: Unit): boolean {
+  const filter = ability.affects ?? 'all';
+  return filter === 'all' || (filter === 'allies') === sameSide(caster, unit);
+}
+
+function sideOf(ability: AbilityDef, attackerPos: Pos, target: Unit): Side {
+  const forced = ability.effects.some((e) => e.type === 'damage' && e.forceSide === 'back');
+  return forced ? 'back' : attackSide(attackerPos, target);
 }
 
 /** Chance in [0, 1] that a hostile ability connects with the target. */
 export function hitChance(ability: AbilityDef, attackerPos: Pos, target: Unit): number {
   if (!isHostile(ability) || ability.tags.includes('magic')) return 1;
-  const side = attackSide(attackerPos, target);
+  const side = sideOf(ability, attackerPos, target);
   const evade = effectiveStats(target).evade;
   const pct = PHYSICAL_BASE_HIT + FACING_BONUS[side].hit - evade;
   return Math.min(100, Math.max(MIN_HIT, pct)) / 100;
@@ -119,13 +134,16 @@ export function damageAmount(
   const t = effectiveStats(target);
   const defence = effect.stat === 'atk' ? t.def : t.res;
   const height = Math.min(HEIGHT_DAMAGE_CAP, Math.max(0, heightAbove(grid, attacker.pos, target.pos)) * HEIGHT_DAMAGE_PER_TIER);
-  const facing = FACING_BONUS[attackSide(attacker.pos, target)].damage;
+  const side = effect.forceSide ?? attackSide(attacker.pos, target);
+  const facing = FACING_BONUS[side].damage * (effect.facingMultiplier ?? 1);
   const raw = (a[effect.stat] * effect.power - defence) * (1 + height) * (1 + facing);
   return Math.max(1, Math.round(raw));
 }
 
-export function healAmount(effect: Extract<Effect, { type: 'heal' }>, caster: Unit): number {
-  return Math.round(effectiveStats(caster)[effect.stat] * effect.power);
+/** mag * power + flat + pct of the target's max HP, boosted by the caster's Grace. */
+export function healAmount(effect: Extract<Effect, { type: 'heal' }>, caster: Unit, target: Unit): number {
+  const raw = effectiveStats(caster).mag * (effect.power ?? 0) + (effect.flat ?? 0) + effectiveStats(target).hp * (effect.pct ?? 0);
+  return Math.round(raw * healMultiplier(caster));
 }
 
 export type TargetPreview = {
@@ -147,13 +165,13 @@ export function previewAct(grid: Grid, units: readonly Unit[], caster: Unit, abi
   const out: TargetPreview[] = [];
   for (const p of areaTiles(grid, ability, caster.pos, target)) {
     const unit = unitAt(others, p.x, p.y);
-    if (!unit) continue;
+    if (!unit || !affects(ability, caster, unit)) continue;
     let damage = 0;
     let heal = 0;
     let revive = false;
     for (const e of ability.effects) {
       if (e.type === 'damage' && isStanding(unit)) damage += damageAmount(grid, e, caster, unit);
-      if (e.type === 'heal' && isStanding(unit)) heal += healAmount(e, caster);
+      if (e.type === 'heal' && isStanding(unit)) heal += healAmount(e, caster, unit);
       if (e.type === 'revive' && isDowned(unit)) revive = true;
     }
     heal = Math.min(heal, effectiveStats(unit).hp - unit.hp);

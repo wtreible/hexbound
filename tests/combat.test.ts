@@ -83,19 +83,20 @@ describe('hitChance', () => {
 });
 
 describe('inRange', () => {
+  const archerAt0 = makeUnit('b', 'p1', 'archer', { x: 0, y: 0 });
   it('respects min and max distance', () => {
     const g = gridFromRows(flat(8, 1));
     const shoot = ABILITIES.shoot!;
-    expect(inRange(g, shoot, { x: 0, y: 0 }, { x: 1, y: 0 })).toBe(false);
-    expect(inRange(g, shoot, { x: 0, y: 0 }, { x: 4, y: 0 })).toBe(true);
-    expect(inRange(g, shoot, { x: 0, y: 0 }, { x: 5, y: 0 })).toBe(false);
+    expect(inRange(g, shoot, archerAt0, { x: 1, y: 0 })).toBe(false);
+    expect(inRange(g, shoot, archerAt0, { x: 4, y: 0 })).toBe(true);
+    expect(inRange(g, shoot, archerAt0, { x: 5, y: 0 })).toBe(false);
   });
 
   it('gives bows +1 range per 2 tiers above the target', () => {
     const g = gridFromRows(['40000000']);
-    expect(inRange(g, ABILITIES.shoot!, { x: 0, y: 0 }, { x: 6, y: 0 })).toBe(true);
-    expect(inRange(g, ABILITIES.shoot!, { x: 0, y: 0 }, { x: 7, y: 0 })).toBe(false);
-    expect(inRange(g, strike, { x: 0, y: 0 }, { x: 2, y: 0 })).toBe(false);
+    expect(inRange(g, ABILITIES.shoot!, archerAt0, { x: 6, y: 0 })).toBe(true);
+    expect(inRange(g, ABILITIES.shoot!, archerAt0, { x: 7, y: 0 })).toBe(false);
+    expect(inRange(g, strike, archerAt0, { x: 2, y: 0 })).toBe(false);
   });
 });
 

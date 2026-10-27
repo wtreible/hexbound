@@ -6,7 +6,7 @@ import { flat, makeUnit } from './fixtures';
 
 function idle(units: Unit[]): GameState {
   // An empty phase; advance() runs the clock from here.
-  return { grid: gridFromRows(flat(6, 6)), units, turn: { phase: 'player', active: [] } };
+  return { grid: gridFromRows(flat(6, 6)), units, hazards: [], turn: { phase: 'player', active: [] } };
 }
 
 describe('advance', () => {
@@ -73,6 +73,7 @@ describe('advance', () => {
 describe('endTurn', () => {
   const phase = (moved: boolean, acted: boolean): GameState => ({
     grid: gridFromRows(flat(6, 6)),
+    hazards: [],
     units: [
       makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: READY_CT } }),
       makeUnit('b', 'p1', 'archer', { x: 1, y: 0 }, { patch: { ct: READY_CT } }),
@@ -98,6 +99,7 @@ describe('predictOrder', () => {
   it('lists the active units first, then simulates the clock', () => {
     const state: GameState = {
       grid: gridFromRows(flat(6, 6)),
+      hazards: [],
       units: [
         makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: 105 } }),
         makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 }, { patch: { ct: 90 } }),
@@ -111,6 +113,7 @@ describe('predictOrder', () => {
   it('skips downed and dead units', () => {
     const state: GameState = {
       grid: gridFromRows(flat(6, 6)),
+      hazards: [],
       units: [
         makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }),
         makeUnit('d', 'p1', 'squire', { x: 1, y: 0 }, { patch: { hp: 0, downedTurns: 2 } }),
@@ -119,5 +122,35 @@ describe('predictOrder', () => {
       turn: { phase: 'player', active: [] },
     };
     expect(predictOrder(state, 3)).toEqual(['a', 'a', 'a']);
+  });
+});
+
+describe('turn start and rounds (M4)', () => {
+  const enemy = () => makeUnit('e', 'enemy', 'squire', { x: 5, y: 5 });
+
+  it('poisons and burns at the start of the turn', () => {
+    const a = makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: 100, statuses: [{ id: 'poison', turns: 3 }] } });
+    const fire = { id: 'fire' as const, pos: { x: 0, y: 0 }, rounds: 3, ownerId: 'p2' };
+    const r = advance({ ...idle([a, enemy()]), hazards: [fire] });
+    // 32 HP archer: poison 10% = 3, fire 15% = 5
+    expect(r.state.units[0]!.hp).toBe(32 - 3 - 5);
+    expect(r.events).toContainEqual({ type: 'damaged', unitId: 'a', amount: 3, source: 'poison' });
+    expect(r.events).toContainEqual({ type: 'damaged', unitId: 'a', amount: 5, source: 'fire' });
+  });
+
+  it('restores MP with Mana Well', () => {
+    const m = makeUnit('m', 'p1', 'mage', { x: 0, y: 0 }, { patch: { ct: 100, mp: 0, passive: 'mana-well' } });
+    expect(advance(idle([m, enemy()])).state.units[0]!.mp).toBe(3);
+  });
+
+  it('ages hazards at the start of each player phase', () => {
+    const a = makeUnit('a', 'p1', 'archer', { x: 0, y: 0 }, { patch: { ct: 100 } });
+    const hazards = [
+      { id: 'oil' as const, pos: { x: 2, y: 2 }, rounds: 1, ownerId: 'p1' },
+      { id: 'trap' as const, pos: { x: 3, y: 3 }, rounds: 4, ownerId: 'p1' },
+    ];
+    const r = advance({ ...idle([a, enemy()]), hazards });
+    expect(r.state.hazards).toEqual([{ ...hazards[1], rounds: 3 }]);
+    expect(r.events).toContainEqual({ type: 'hazard', hazard: 'oil', pos: { x: 2, y: 2 }, added: false });
   });
 });

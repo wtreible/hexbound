@@ -111,3 +111,49 @@ describe('face and wait', () => {
     expect(r.state.turn).toMatchObject({ phase: 'player', active: [{ unitId: 'a' }] });
   });
 });
+
+describe('M4: JP, Resolve and traps', () => {
+  it('awards 8-12 JP to the current job for acting', () => {
+    const r = ok(apply(state(), { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } }));
+    const jp = r.events.find((e) => e.type === 'jp');
+    expect(jp).toMatchObject({ unitId: 'a', job: 'archer' });
+    const amount = (jp as { amount: number }).amount;
+    expect(amount).toBeGreaterThanOrEqual(8);
+    expect(amount).toBeLessThanOrEqual(12);
+    expect(r.state.units.find((u) => u.id === 'a')!.jp.archer).toBe(amount);
+  });
+
+  it('pays the clear bonus to surviving player units on victory', () => {
+    const s = state();
+    const last = { ...s, units: s.units.filter((u) => u.id !== 'e2').map((u) => (u.id === 'e1' ? { ...u, hp: 1 } : u)) };
+    const r = ok(apply(last, { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } }));
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'jp', unitId: 's', amount: 20 }));
+    expect(r.state.units.find((u) => u.id === 's')!.jp.squire).toBe(20);
+  });
+
+  it('rejects ultimates without full Resolve and locked abilities', () => {
+    const s = state();
+    const withUlt = { ...s, units: s.units.map((u) => (u.id === 's' ? { ...u, ultimate: 'last-stand', jp: { squire: 300 } } : u)) };
+    expect(apply(withUlt, { type: 'act', unitId: 's', abilityId: 'last-stand', target: { x: 0, y: 5 } })).toEqual({ error: 'not enough Resolve' });
+    const full = { ...withUlt, units: withUlt.units.map((u) => (u.id === 's' ? { ...u, resolve: 100 } : u)) };
+    expect('error' in apply(full, { type: 'act', unitId: 's', abilityId: 'last-stand', target: { x: 0, y: 5 } })).toBe(false);
+    expect(apply(s, { type: 'act', unitId: 's', abilityId: 'shove', target: { x: 0, y: 4 } })).toHaveProperty('error'); // Rank 2
+  });
+
+  it("stops a unit on a hostile trap, which goes off; allies walk over their own", () => {
+    const trap = { id: 'trap' as const, pos: { x: 1, y: 2 }, rounds: 6, ownerId: 'p1' };
+    const foe = battle(flat(4, 4), [makeUnit('e', 'enemy', 'squire', { x: 0, y: 2 }), makeUnit('p', 'p1', 'squire', { x: 3, y: 0 })], ['e'], 'enemy', [trap]);
+    const r = ok(apply(foe, { type: 'move', unitId: 'e', to: { x: 3, y: 2 } }));
+    const e = r.state.units.find((u) => u.id === 'e')!;
+    expect(e.pos).toEqual({ x: 1, y: 2 });
+    expect(e.hp).toBe(43 - 12);
+    expect(e.statuses).toEqual([{ id: 'pinned', turns: 2 }]);
+    expect(r.state.hazards).toEqual([]);
+    expect(r.events).toContainEqual({ type: 'triggered', unitId: 'e', hazard: 'trap', pos: { x: 1, y: 2 } });
+
+    const own = battle(flat(4, 4), [makeUnit('p', 'p1', 'squire', { x: 0, y: 2 }), makeUnit('e', 'enemy', 'squire', { x: 3, y: 0 })], ['p'], 'player', [trap]);
+    const walked = ok(apply(own, { type: 'move', unitId: 'p', to: { x: 3, y: 2 } }));
+    expect(walked.state.units[0]!.pos).toEqual({ x: 3, y: 2 });
+    expect(walked.state.hazards).toHaveLength(1);
+  });
+});

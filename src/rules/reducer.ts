@@ -1,11 +1,14 @@
-import { resolveAbility } from './abilities';
+import { hurt, resolveAbility, TRAP_EFFECTS } from './abilities';
 import { inRange } from './combat';
 import { facingOfStep, indexOf, inBounds, pathTo, reachable } from './grid';
-import { abilitiesOf, effectiveStats } from './jobs';
+import { abilitiesOf, effectiveStats, grantJp } from './jobs';
 import type { Rng } from './rng';
 import { checkVictory, endTurn, pruneActive, type Step } from './turn';
-import type { ActiveUnit, GameState, Intent } from './types';
-import { findUnit } from './units';
+import type { ActiveUnit, GameEvent, GameState, Intent, Unit } from './types';
+import { findUnit, isEnemy, isStanding, unitAt } from './units';
+
+/** JP per action taken in battle (docs/DESIGN.md §6.2). */
+export const ACT_JP = { min: 8, max: 12 } as const;
 
 export type IntentResult = Step | { error: string };
 
@@ -34,20 +37,57 @@ export function applyIntent(state: GameState, intent: Intent, rng: Rng): IntentR
       const reach = reachable(state.grid, state.units, unit, effectiveStats(unit));
       const node = reach.get(indexOf(state.grid, intent.to));
       if (!node || !node.canStop) return { error: 'destination not reachable' };
-      const path = pathTo(state.grid, reach, intent.to);
-      if (path.length < 2) return { error: 'already there' };
-      const facing = facingOfStep(path[path.length - 2]!, intent.to);
-      const units = state.units.map((u) => (u.id === unit.id ? { ...u, pos: intent.to, facing } : u));
-      return { state: { ...state, units, turn: mark({ moved: true }) }, events: [{ type: 'moved', unitId: unit.id, path }] };
+      const full = pathTo(state.grid, reach, intent.to);
+      if (full.length < 2) return { error: 'already there' };
+      // A hostile trap or mine on the way stops the unit there and goes off.
+      const hostile = (i: number) => {
+        const p = full[i]!;
+        const h = state.hazards.find((x) => x.pos.x === p.x && x.pos.y === p.y);
+        const enemyOwned = h?.ownerId === 'enemy';
+        return h && (h.id === 'trap' || h.id === 'mine') && enemyOwned !== isEnemy(unit) && !unitAt(state.units, p.x, p.y) ? h : undefined;
+      };
+      let stop = full.length - 1;
+      for (let i = 1; i < full.length; i++) if (hostile(i)) { stop = i; break; }
+      const path = full.slice(0, stop + 1);
+      const to = path[path.length - 1]!;
+      const facing = facingOfStep(path[path.length - 2]!, to);
+      const events: GameEvent[] = [{ type: 'moved', unitId: unit.id, path }];
+      let moved: Unit = { ...unit, pos: to, facing };
+      let hazards = state.hazards;
+      const trap = hostile(stop);
+      if (trap) {
+        events.push({ type: 'triggered', unitId: unit.id, hazard: trap.id, pos: to });
+        events.push({ type: 'hazard', hazard: trap.id, pos: to, added: false });
+        hazards = hazards.filter((h) => h !== trap);
+        const kind = trap.id as keyof typeof TRAP_EFFECTS;
+        const fx = TRAP_EFFECTS[kind];
+        moved = hurt(moved, fx.damage, kind, events);
+        if ('status' in fx && isStanding(moved)) {
+          moved = { ...moved, statuses: [...moved.statuses.filter((s) => s.id !== fx.status), { id: fx.status, turns: fx.turns }] };
+          events.push({ type: 'status', unitId: unit.id, status: fx.status, added: true });
+        }
+      }
+      const units = state.units.map((u) => (u.id === unit.id ? moved : u));
+      const next: GameState = { ...state, units, hazards, turn: mark({ moved: true }) };
+      return trap ? pruneActive(checkVictory({ state: next, events })) : { state: next, events };
     }
     case 'act': {
       if (entry.acted) return { error: 'already acted' };
       const ability = abilitiesOf(unit).find((a) => a.id === intent.abilityId);
       if (!ability) return { error: `${unit.name} can't use ${intent.abilityId}` };
       if ((ability.cost?.mp ?? 0) > unit.mp) return { error: 'not enough MP' };
-      if (!inRange(state.grid, ability, unit.pos, intent.target)) return { error: 'target out of range' };
-      const r = resolveAbility(state.grid, state.units, unit.id, ability, intent.target, rng);
-      const next: GameState = { ...state, units: r.units, turn: mark({ acted: true }) };
+      if ((ability.cost?.resolve ?? 0) > unit.resolve) return { error: 'not enough Resolve' };
+      if (!inRange(state.grid, ability, unit, intent.target)) return { error: 'target out of range' };
+      const r = resolveAbility(state, unit.id, ability, intent.target, rng);
+      // JP for acting goes to the current job (docs/DESIGN.md §6.2).
+      const amount = ACT_JP.min + rng.int(0, ACT_JP.max - ACT_JP.min);
+      const units = r.units.map((u) => {
+        if (u.id !== unit.id || u.dead || isEnemy(u)) return u;
+        const gain = grantJp(u, amount);
+        r.events.push({ type: 'jp', unitId: u.id, job: u.job, amount, rank: gain.rank, rankUp: gain.rankUp });
+        return gain.unit;
+      });
+      const next: GameState = { ...state, units, hazards: r.hazards, turn: mark({ acted: true }) };
       return pruneActive(checkVictory({ state: next, events: r.events }));
     }
     case 'face': {

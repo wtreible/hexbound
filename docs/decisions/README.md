@@ -16,3 +16,8 @@ One file per decision, numbered in the order they were made. `docs/DESIGN.md` is
 | [0006](0006-downed-knockback-and-effects.md) | Downed units, knockback and the M2 effect set | M2 |
 | [0007](0007-berserker-ai.md) | Berserker AI scoring and its first-mover weakness | M2 |
 | [0008](0008-defer-networking-milestone.md) | Defer networking (M3) until after the art pass | M4 |
+| [0009](0009-job-progression.md) | Job progression: ranks, unlocks and the camp test harness | M4 |
+| [0010](0010-resolve-and-ultimates.md) | Resolve and ultimates | M4 |
+| [0011](0011-hazards-statuses-and-traps.md) | Hazards, new statuses and traps | M4 |
+| [0012](0012-passives-reactions-and-first-hybrids.md) | Passives, reactions and the first hybrid kits | M4 |
+| [0013](0013-ignite-combo.md) | Ignite combo rules | M4 |

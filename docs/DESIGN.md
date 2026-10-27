@@ -138,6 +138,8 @@ Each unit has:
 - **Tuning target:** a base job can be mastered in about 3 battles, which gives 2–3 job changes per unit per run.
 - Job changes happen **only at Camp nodes**.
 
+**As built:** how ranks unlock passives and ultimates, JP amounts, Resolve, hazards, reactions and Ignite are settled in decisions [0009](decisions/0009-job-progression.md)–[0013](decisions/0013-ignite-combo.md).
+
 ### 6.3 Base jobs (6)
 
 | Job | Role | Action set (Rank 0 / 1 / 2) | Passive | Ultimate |

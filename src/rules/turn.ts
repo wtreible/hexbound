@@ -1,5 +1,7 @@
-import { effectiveStats } from './jobs';
-import type { ActiveUnit, GameEvent, GameState, Unit } from './types';
+import { hurt } from './abilities';
+import { indexOf } from './grid';
+import { effectiveStats, grantJp, passiveEffects } from './jobs';
+import type { ActiveUnit, GameEvent, GameState, Hazard, Unit } from './types';
 import { isDowned, isEnemy, isStanding } from './units';
 
 // CT timeline (docs/DESIGN.md §5.2). Each tick adds spd to every unit's ct; at
@@ -15,6 +17,13 @@ export const READY_CT = 100;
  */
 export const CT_CARRY = { both: 0, one: 60, none: 80 } as const;
 
+/** JP for every surviving player unit when the player side wins (docs/DESIGN.md §6.2). */
+export const CLEAR_BONUS_JP = 20;
+
+/** Turn-start damage as a share of max HP. */
+export const POISON_PCT = 0.1;
+export const FIRE_PCT = 0.15;
+
 // Safety net: a board where nobody has speed would otherwise loop forever.
 const MAX_TICKS = 10_000;
 
@@ -26,15 +35,19 @@ export function winner(units: readonly Unit[]): 'player' | 'enemy' | null {
   return null;
 }
 
-/** Ends the battle if one side has no standing units left. */
+/** Ends the battle if one side has no standing units left. A player win pays the clear bonus. */
 export function checkVictory(step: Step): Step {
   if (step.state.turn.phase === 'over') return step;
   const w = winner(step.state.units);
   if (!w) return step;
-  return {
-    state: { ...step.state, turn: { phase: 'over', winner: w } },
-    events: [...step.events, { type: 'battle-over', winner: w }],
-  };
+  const events: GameEvent[] = [...step.events, { type: 'battle-over', winner: w }];
+  const units = step.state.units.map((u) => {
+    if (w !== 'player' || isEnemy(u) || u.dead) return u;
+    const gain = grantJp(u, CLEAR_BONUS_JP);
+    events.push({ type: 'jp', unitId: u.id, job: u.job, amount: CLEAR_BONUS_JP, rank: gain.rank, rankUp: gain.rankUp });
+    return gain.unit;
+  });
+  return { state: { ...step.state, units, turn: { phase: 'over', winner: w } }, events };
 }
 
 const byReadiness = (a: Unit, b: Unit) => b.ct - a.ct || (a.id < b.id ? -1 : 1);
@@ -46,6 +59,7 @@ const byReadiness = (a: Unit, b: Unit) => b.ct - a.ct || (a.id < b.id ? -1 : 1);
 export function advance(state: GameState): Step {
   const events: GameEvent[] = [];
   let units = state.units;
+  let hazards = state.hazards;
   for (let tick = 0; tick < MAX_TICKS; tick++) {
     // Downed units that come up lose a turn from their counter instead of acting.
     units = units.map((u) => {
@@ -60,7 +74,7 @@ export function advance(state: GameState): Step {
       return { ...rest, ct: 0, dead: true };
     });
 
-    const over = checkVictory({ state: { ...state, units }, events });
+    const over = checkVictory({ state: { ...state, units, hazards }, events });
     if (over.state.turn.phase === 'over') return over;
 
     const ready = units.filter((u) => isStanding(u) && u.ct >= READY_CT);
@@ -69,11 +83,19 @@ export function advance(state: GameState): Step {
     const side = players.length ? players : enemies;
     if (side.length) {
       const phase = players.length ? 'player' : 'enemy';
+      // A new round starts with each player phase: hazards burn down then.
+      if (phase === 'player') hazards = tickHazards(hazards, events);
+      const onTile = new Map(hazards.map((h) => [indexOf(state.grid, h.pos), h]));
       const ids = new Set(side.map((u) => u.id));
-      units = units.map((u) => (ids.has(u.id) ? tickStatuses(u, events) : u));
-      events.push({ type: 'phase', phase, unitIds: side.map((u) => u.id) });
-      const active: ActiveUnit[] = side.map((u) => ({ unitId: u.id, moved: false, acted: false }));
-      return { state: { ...state, units, turn: { phase, active } }, events };
+      units = units.map((u) => (ids.has(u.id) ? turnStart(u, onTile.get(indexOf(state.grid, u.pos)), events) : u));
+      // Poison or fire can down a unit as its turn begins; it loses that turn.
+      const standing = side.filter((u) => isStanding(units.find((x) => x.id === u.id)!));
+      const over = checkVictory({ state: { ...state, units, hazards }, events });
+      if (over.state.turn.phase === 'over') return over;
+      if (!standing.length) continue;
+      events.push({ type: 'phase', phase, unitIds: standing.map((u) => u.id) });
+      const active: ActiveUnit[] = standing.map((u) => ({ unitId: u.id, moved: false, acted: false }));
+      return { state: { ...state, units, hazards, turn: { phase, active } }, events };
     }
 
     units = units.map((u) => (u.dead ? u : { ...u, ct: u.ct + effectiveStats(u).spd }));
@@ -81,15 +103,44 @@ export function advance(state: GameState): Step {
   throw new Error('timeline stalled: no unit can reach READY_CT');
 }
 
-/** Statuses lose a turn when their unit's turn starts, and expire at 0. */
-function tickStatuses(u: Unit, events: GameEvent[]): Unit {
-  if (!u.statuses.length) return u;
-  const statuses = [];
-  for (const s of u.statuses) {
-    if (s.turns > 1) statuses.push({ ...s, turns: s.turns - 1 });
-    else events.push({ type: 'status', unitId: u.id, status: s.id, added: false });
+/**
+ * Start of a unit's turn: poison and burning ground hurt, statuses lose a
+ * turn (expiring at 0), and Mana Well restores MP.
+ */
+function turnStart(unit: Unit, hazard: Hazard | undefined, events: GameEvent[]): Unit {
+  let u = unit;
+  const max = effectiveStats(u);
+  if (u.statuses.some((s) => s.id === 'poison')) u = hurt(u, Math.round(max.hp * POISON_PCT), 'poison', events);
+  if (isStanding(u) && hazard?.id === 'fire') u = hurt(u, Math.round(max.hp * FIRE_PCT), 'fire', events);
+  if (!isStanding(u)) return u;
+
+  if (u.statuses.length) {
+    const statuses = [];
+    for (const s of u.statuses) {
+      if (s.turns > 1) statuses.push({ ...s, turns: s.turns - 1 });
+      else events.push({ type: 'status', unitId: u.id, status: s.id, added: false });
+    }
+    u = { ...u, statuses };
   }
-  return { ...u, statuses };
+  for (const p of passiveEffects(u)) {
+    if (p.type !== 'mp-regen') continue;
+    const restored = Math.min(p.amount, max.mp - u.mp);
+    if (restored > 0) {
+      u = { ...u, mp: u.mp + restored };
+      events.push({ type: 'mp', unitId: u.id, amount: restored });
+    }
+  }
+  return u;
+}
+
+/** Hazards lose a round at the start of each player phase and vanish at 0. */
+function tickHazards(hazards: Hazard[], events: GameEvent[]): Hazard[] {
+  const next: Hazard[] = [];
+  for (const h of hazards) {
+    if (h.rounds > 1) next.push({ ...h, rounds: h.rounds - 1 });
+    else events.push({ type: 'hazard', hazard: h.id, pos: h.pos, added: false });
+  }
+  return next;
 }
 
 /** Ends one active unit's turn, then advances the clock if the phase is done. */

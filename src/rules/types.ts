@@ -22,7 +22,9 @@ export type Grid = { width: number; depth: number; tiles: Tile[] };
 
 export type JobId = string;
 export type AbilityId = string;
-export type StatusId = 'guard' | 'pinned';
+export type StatusId = 'guard' | 'pinned' | 'slow' | 'haste' | 'veil' | 'poison';
+/** Things left on tiles: oil (fuel for Ignite), fire (burns at turn start), trap and mine (trigger on entry). */
+export type HazardId = 'oil' | 'fire' | 'trap' | 'mine';
 export type Element = 'fire' | 'ice' | 'lightning' | 'holy' | 'dark';
 export type EquipTag = string;
 
@@ -39,9 +41,12 @@ export type JobDef = {
   growth: Partial<Record<Stat, number>>;
   /** The job's basic attack, always available. */
   attack: AbilityId;
+  /** Each ability unlocks at the given rank in this job (0 = from the start). */
   actionSet: { abilityId: AbilityId; rank: 0 | 1 | 2 | 3 }[];
+  /** Learned at Rank 2; equippable on any job afterwards. */
   passives: AbilityId[];
-  ultimate?: AbilityId;
+  /** Granted on mastery; equippable on any job afterwards. */
+  ultimate: AbilityId;
   equip: EquipTag[];
   /** Key into the asset manifest. */
   model: string;
@@ -50,12 +55,42 @@ export type JobDef = {
 export type AreaShape = 'single' | 'cross' | 'diamond' | 'line' | 'cone';
 
 export type Effect =
-  | { type: 'damage'; stat: 'atk' | 'mag'; power: number; element?: Element }
-  | { type: 'heal'; stat: 'mag'; power: number }
+  | {
+      type: 'damage';
+      stat: 'atk' | 'mag';
+      power: number;
+      element?: Element;
+      /** Multiplies the facing damage bonus (Backstab). */
+      facingMultiplier?: number;
+      /** Always counts as an attack from this side (Shadow Step). */
+      forceSide?: 'back';
+    }
+  /** Heals mag * power + flat + pct of the target's max HP. */
+  | { type: 'heal'; power?: number; flat?: number; pct?: number }
   | { type: 'status'; status: StatusId; chance: number; duration: number }
   | { type: 'push'; distance: number }
   | { type: 'revive'; hpPct: number }
-  | { type: 'cleanse' };
+  | { type: 'cleanse' }
+  /** Restores MP to the target; with steal, takes it from the target and gives it to the caster. */
+  | { type: 'mp'; amount: number; steal?: boolean }
+  | { type: 'ct'; delta: number }
+  /** Leaves a hazard on each walkable tile in the area. Traps and mines only go on empty tiles. */
+  | { type: 'hazard'; hazard: HazardId; rounds: number };
+
+/** Passive abilities (docs/DESIGN.md §6.1): supports and reactions. */
+export type PassiveEffect =
+  | { type: 'stat'; stat: Stat; add: number }
+  | { type: 'range'; tag: string; add: number }
+  | { type: 'heal-boost'; pct: number }
+  | { type: 'mp-regen'; amount: number }
+  | { type: 'mp-on-hit'; amount: number }
+  /** Strike back with the basic attack when hit in melee. */
+  | { type: 'counter' }
+  /** Take single-target hostile abilities aimed at an adjacent ally. */
+  | { type: 'cover' };
+
+/** What sets off a cross-player combo (docs/DESIGN.md §6.6). */
+export type ComboTrigger = { type: 'element-on-hazard'; element: Element; hazard: HazardId; crossPlayer: boolean };
 
 export type AbilityDef = {
   id: AbilityId;
@@ -69,10 +104,18 @@ export type AbilityDef = {
   chargeTicks?: number;
   /** Resolved in order against every unit in the area. */
   effects: Effect[];
-  /** 'physical' or 'magic' decides defence and hit chance; others are flavour. */
+  /** Which units in the area are affected. Default 'all' (friendly fire). */
+  affects?: 'all' | 'foes' | 'allies';
+  /** For kind 'passive'. */
+  passive?: PassiveEffect[];
+  /** For kind 'combo'. */
+  trigger?: ComboTrigger;
+  /** 'physical' or 'magic' decides defence and hit chance; 'bow', 'throw', 'melee' match range passives. */
   tags: string[];
   description: string;
 };
+
+export type Hazard = { id: HazardId; pos: Pos; rounds: number; ownerId: string };
 
 export type Unit = {
   id: string;
@@ -83,9 +126,17 @@ export type Unit = {
   job: JobId;
   /** Base stats before job multipliers. base.move and base.jump add to the job's values. */
   base: Record<Stat, number>;
+  /** Cumulative JP earned in each job; rank comes from this (rules/jobs.ts). */
+  jp: Record<JobId, number>;
+  /** Action set borrowed from another job the unit has reached Rank 1 in. */
+  secondary?: JobId;
+  passive?: AbilityId;
+  ultimate?: AbilityId;
   hp: number;
   mp: number;
   ct: number;
+  /** 0-100; fills as the unit deals and takes damage. Ultimates spend it. */
+  resolve: number;
   pos: Pos;
   facing: Facing;
   statuses: { id: StatusId; turns: number }[];
@@ -101,7 +152,7 @@ export type TurnState =
   | { phase: 'player' | 'enemy'; active: ActiveUnit[] }
   | { phase: 'over'; winner: 'player' | 'enemy' };
 
-export type GameState = { grid: Grid; units: Unit[]; turn: TurnState };
+export type GameState = { grid: Grid; units: Unit[]; turn: TurnState; hazards: Hazard[] };
 
 export type Intent =
   | { type: 'move'; unitId: string; to: Pos }
@@ -113,7 +164,7 @@ export type GameEvent =
   | { type: 'moved'; unitId: string; path: Pos[] }
   | { type: 'faced'; unitId: string; facing: Facing }
   | { type: 'acted'; unitId: string; abilityId: AbilityId; target: Pos }
-  | { type: 'damaged'; unitId: string; amount: number }
+  | { type: 'damaged'; unitId: string; amount: number; source?: 'poison' | 'fire' | HazardId }
   | { type: 'missed'; unitId: string }
   | { type: 'healed'; unitId: string; amount: number }
   | { type: 'status'; unitId: string; status: StatusId; added: boolean }
@@ -123,5 +174,14 @@ export type GameEvent =
   | { type: 'down-tick'; unitId: string; turnsLeft: number }
   | { type: 'died'; unitId: string }
   | { type: 'turn-ended'; unitId: string }
+  | { type: 'mp'; unitId: string; amount: number }
+  | { type: 'ct'; unitId: string; delta: number }
+  | { type: 'hazard'; hazard: HazardId; pos: Pos; added: boolean }
+  /** A unit walked onto a hostile trap or mine and stopped there. */
+  | { type: 'triggered'; unitId: string; hazard: HazardId; pos: Pos }
+  | { type: 'countered'; unitId: string; targetId: string }
+  | { type: 'covered'; unitId: string; forId: string }
+  | { type: 'combo'; comboId: string; pos: Pos }
+  | { type: 'jp'; unitId: string; job: JobId; amount: number; rank: number; rankUp: boolean }
   | { type: 'phase'; phase: 'player' | 'enemy'; unitIds: string[] }
   | { type: 'battle-over'; winner: 'player' | 'enemy' };

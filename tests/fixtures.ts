@@ -1,7 +1,7 @@
 import { BASE_STATS } from '../src/data/units';
 import { gridFromRows } from '../src/rules/grid';
 import { createUnit } from '../src/rules/jobs';
-import type { Facing, GameState, Pos, Stat, Unit } from '../src/rules/types';
+import type { Facing, GameState, Hazard, Pos, Stat, Unit } from '../src/rules/types';
 
 export function makeUnit(
   id: string,
@@ -15,10 +15,11 @@ export function makeUnit(
 }
 
 /** A battle state where the given units are the active player (or enemy) phase. */
-export function battle(rows: string[], units: Unit[], active: string[], phase: 'player' | 'enemy' = 'player'): GameState {
+export function battle(rows: string[], units: Unit[], active: string[], phase: 'player' | 'enemy' = 'player', hazards: Hazard[] = []): GameState {
   return {
     grid: gridFromRows(rows),
     units,
+    hazards,
     turn: { phase, active: active.map((unitId) => ({ unitId, moved: false, acted: false })) },
   };
 }
