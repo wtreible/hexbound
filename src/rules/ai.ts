@@ -1,4 +1,4 @@
-import { areaTiles, previewAct, targetTiles } from './combat';
+import { areaTiles, damageScale, previewAct, targetTiles } from './combat';
 import { distanceMap, facingOfStep, indexOf, manhattan, reachable, stepToward } from './grid';
 import { abilitiesOf, canAfford, effectiveStats } from './jobs';
 import type { Facing, GameState, Intent, Pos, Unit } from './types';
@@ -56,7 +56,7 @@ export function dangerMap(state: GameState, unit: Unit): number[] {
       if (!canAfford(foe, ability)) continue;
       let amount = 0;
       for (const e of ability.effects) {
-        if (e.type === 'damage') amount += Math.max(1, stats[e.stat] * e.power - (e.stat === 'atk' ? defence.def : defence.res));
+        if (e.type === 'damage') amount += Math.max(1, (stats[e.stat] * e.power - (e.stat === 'atk' ? defence.def : defence.res)) * damageScale(foe));
       }
       if (!amount) continue;
       const reached = new Set<number>();

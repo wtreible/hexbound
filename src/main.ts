@@ -3,7 +3,6 @@ import { BASE_STATS } from './data/units';
 import { createScene } from './render/scene';
 import { setupBattle, type BattleSetup } from './rules/battle';
 import { createRng } from './rules/rng';
-import type { Stat } from './rules/types';
 import { battleFor, enterNode, finishBattle, isBattle, leaveNode, newRun, node, recruit, type RunState } from './rules/run';
 import { clearRun, loadRun, saveRun } from './save';
 import { mountBattle } from './ui/battle';
@@ -23,20 +22,15 @@ const view = createScene(canvas);
 
 // TEMPORARY (decision 0014): ?quick is a turbo test mode for checking
 // progression and the run, not combat. A squad of 2; every battle is a 2v2
-// (the encounter's first two enemies, weakened) on the small glade map; the
-// AI plays both sides at double speed. Delete this block and the glade map
-// when no longer needed.
+// (the encounter's first two enemies) on the small glade map; the AI plays
+// both sides at double speed. Delete this block and the glade map when no
+// longer needed.
 const QUICK = new URLSearchParams(location.search).has('quick');
 const SQUAD_SIZE = QUICK ? 2 : 4;
 const QUICK_SPEED = 2;
-const QUICK_ENEMY_SCALE = 0.7;
 function quickBattle(setup: BattleSetup): BattleSetup {
   if (!QUICK) return setup;
-  const enemies = setup.enemies.slice(0, 2).map((e) => {
-    const scale: Partial<Record<Stat, number>> = { ...e.scale };
-    for (const stat of ['hp', 'atk', 'mag', 'def', 'res'] as const) scale[stat] = (scale[stat] ?? 1) * QUICK_ENEMY_SCALE;
-    return { ...e, scale };
-  });
+  const enemies = setup.enemies.slice(0, 2);
   // The glade has no exits or hold zone, so those objectives become a rout.
   const objective = setup.objective === 'leader' ? 'leader' : 'rout';
   return { ...setup, rows: glade.rows, spawns: glade.spawns, enemies, objective };

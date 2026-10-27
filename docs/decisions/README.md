@@ -27,3 +27,4 @@ One file per decision, numbered in the order they were made. `docs/DESIGN.md` is
 | [0017](0017-objectives-charge-spells-and-statuses.md) | Objectives, charge-time spells and more statuses | M5 |
 | [0018](0018-rounds-and-the-downed-countdown.md) | Rounds, and 3 full rounds before a downed unit is lost | M5 |
 | [0019](0019-cautious-and-escort-ai.md) | Cautious and escort AI presets, and auto-play | M5 |
+| [0020](0020-enemy-difficulty-scaling.md) | Enemies deal half damage and have half HP | M5 |

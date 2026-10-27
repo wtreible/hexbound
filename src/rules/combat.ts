@@ -1,7 +1,7 @@
 import { FACING_STEPS, inBounds, manhattan, stepToward, tileAt } from './grid';
 import { effectiveStats, healMultiplier, rangeBonus } from './jobs';
 import type { AbilityDef, Effect, Grid, Pos, Unit } from './types';
-import { isDowned, isStanding, sameSide, unitAt } from './units';
+import { isDowned, isEnemy, isStanding, sameSide, unitAt } from './units';
 
 // Combat math (docs/DESIGN.md §5.3). Starting values; tune later.
 export const HEIGHT_DAMAGE_PER_TIER = 0.1;
@@ -9,6 +9,11 @@ export const HEIGHT_DAMAGE_CAP = 0.3;
 export const PHYSICAL_BASE_HIT = 90;
 export const MIN_HIT = 5;
 export const BLIND_PENALTY = 40;
+/** Enemies deal half damage (decision 0020). */
+export const ENEMY_DAMAGE_SCALE = 0.5;
+
+/** Damage multiplier for an attacker's side. */
+export const damageScale = (attacker: Unit): number => (isEnemy(attacker) ? ENEMY_DAMAGE_SCALE : 1);
 export const FACING_BONUS = {
   front: { hit: 0, damage: 0 },
   side: { hit: 15, damage: 0.1 },
@@ -125,7 +130,7 @@ export function hitChance(ability: AbilityDef, attacker: Unit, target: Unit): nu
   return Math.min(100, Math.max(MIN_HIT, pct)) / 100;
 }
 
-/** damage = max(1, round((stat * power - defence) * modifiers)) */
+/** damage = max(1, round((stat * power - defence) * modifiers)); enemies' modifiers include ENEMY_DAMAGE_SCALE. */
 export function damageAmount(
   grid: Grid,
   effect: Extract<Effect, { type: 'damage' }>,
@@ -138,7 +143,7 @@ export function damageAmount(
   const height = Math.min(HEIGHT_DAMAGE_CAP, Math.max(0, heightAbove(grid, attacker.pos, target.pos)) * HEIGHT_DAMAGE_PER_TIER);
   const side = effect.forceSide ?? attackSide(attacker.pos, target);
   const facing = FACING_BONUS[side].damage * (effect.facingMultiplier ?? 1);
-  const raw = (a[effect.stat] * effect.power - defence) * (1 + height) * (1 + facing);
+  const raw = (a[effect.stat] * effect.power - defence) * (1 + height) * (1 + facing) * damageScale(attacker);
   return Math.max(1, Math.round(raw));
 }
 

@@ -43,16 +43,16 @@ export function readyForBattle(unit: Unit, pos: Pos, facing: Facing): Unit {
   return { ...fresh, hp: Math.max(1, Math.min(unit.hp, stats.hp)), mp: stats.mp };
 }
 
+/** Enemies have half the HP of a player unit of their job and level (decision 0020). */
+export const ENEMY_HP_SCALE = 0.5;
+
 function createEnemy(spec: EnemySpec, i: number, base: Record<Stat, number>, pos: Pos, facing: Facing): Unit {
-  let u = createUnit({ id: `e${i}`, ownerId: 'enemy', name: spec.name, job: spec.job, base, pos, facing, level: spec.level });
-  if (spec.scale) {
-    const scaled = { ...u.base };
-    for (const [stat, m] of Object.entries(spec.scale)) scaled[stat as Stat] *= m;
-    u = { ...u, base: scaled };
-    const stats = effectiveStats(u);
-    u = { ...u, hp: stats.hp, mp: stats.mp };
-  }
-  return u;
+  const u = createUnit({ id: `e${i}`, ownerId: 'enemy', name: spec.name, job: spec.job, base, pos, facing, level: spec.level });
+  const scaled = { ...u.base, hp: u.base.hp * ENEMY_HP_SCALE };
+  for (const [stat, m] of Object.entries(spec.scale ?? {})) scaled[stat as Stat] *= m;
+  const next = { ...u, base: scaled };
+  const stats = effectiveStats(next);
+  return { ...next, hp: stats.hp, mp: stats.mp };
 }
 
 /** Places both sides and runs the clock to the first phase. */

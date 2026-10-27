@@ -137,3 +137,29 @@ describe('previewAct', () => {
     expect(previewAct(g, [c, hurt], c, ABILITIES.mend!, hurt.pos)[0]!.heal).toBe(3);
   });
 });
+
+describe('enemy scaling (decision 0020)', () => {
+  it('halves the damage enemies deal', () => {
+    const g = gridFromRows(flat(5, 5));
+    const target = makeUnit('t', 'p1', 'archer', { x: 2, y: 2 }, { facing: 2 });
+    const player = makeUnit('a', 'p2', 'squire', { x: 2, y: 3 });
+    const enemy = makeUnit('a', 'enemy', 'squire', { x: 2, y: 3 });
+    const full = damageAmount(g, hit, player, { ...target, ownerId: 'enemy' });
+    expect(full).toBe(11);
+    expect(damageAmount(g, hit, enemy, target)).toBe(Math.round(11 * 0.5));
+  });
+
+  it('gives enemies half the HP of the same job and level', async () => {
+    const { setupBattle } = await import('../src/rules/battle');
+    const { BASE_STATS } = await import('../src/data/units');
+    const { state } = setupBattle({
+      rows: flat(4, 4),
+      spawns: { player: [{ x: 0, y: 0 }], enemy: [{ x: 3, y: 3 }] },
+      squad: [makeUnit('p0', 'p1', 'squire', { x: 0, y: 0 })],
+      enemies: [{ name: 'Bandit', job: 'squire' }],
+      base: BASE_STATS,
+    });
+    const [p, e] = state.units;
+    expect(e!.hp).toBe(Math.round(effectiveStats(p!).hp * 0.5));
+  });
+});

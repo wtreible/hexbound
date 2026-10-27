@@ -12,9 +12,9 @@ The camp → battle test loop used the full 4v4 meadow (12×12), so each playtes
 
 - While playtesting, battles run **2v2** on **Little Glade** (`src/data/maps/glade.ts`), a 9×8 map: half the meadow's 144 tiles. "50% map" was read as half the area, not half of each side.
 - Since M5 this is opt-in **turbo test mode** for checking progression and the run, not combat: add **`?quick`** to the URL.
-  - Squad of 2. Every battle is a 2v2 on the glade: the encounter's first two enemies (a boss keeps its boss), with their HP, attack and defence ×0.7.
+  - Squad of 2. Every battle is a 2v2 on the glade: the encounter's first two enemies (a boss keeps its boss).
   - **The AI plays both sides**, using the cautious preset for the player's units, at **2× speed**. The result screen moves on by itself.
-  - Why the ×0.7: in simulated quick runs without it, the AI-played pair won only 25% of battles and never left act 1. With it, they won 88%, and runs reach acts 2 and 3 (6 of 30 won outright). That's enough to exercise progression.
+  - Quick mode briefly weakened enemies to ×0.7 as well. It was removed once enemies were halved for everyone (decision 0020): stacked, every simulated quick run was won, so losses and permadeath were never exercised. Without it, 20 of 30 simulated quick runs were won (96% of battles), with losses spread over acts 2–3.
 - Without `?quick`, runs use the real 4-unit squads and maps, and you control your units.
 - Everything involved is marked `TEMPORARY (decision 0014)` in code.
 
