@@ -8,6 +8,9 @@ import type { Grid, Hazard, HazardId, Pos, TerrainId } from '../rules/types';
 export const TIER = 0.5;
 const TILE_SIZE = 0.96; // the gap shows the background as grid lines
 const WATER_TOP = TIER * 0.6;
+/** Tiles that hide this point above another tile's top fade to FADED_OPACITY. */
+const HIDDEN_HEIGHT = 0.4;
+const FADED_OPACITY = 0.25;
 
 
 export type HighlightKind = 'reach' | 'pass' | 'path' | 'range' | 'area' | 'facing' | 'exit' | 'hold' | 'cast';
@@ -52,8 +55,8 @@ export type BoardView = {
   /** Outline the selected unit's tile. */
   setSelection(p: Pos | null): void;
   setHazards(hazards: readonly Hazard[]): void;
-  /** Animates water. */
-  update(dt: number): void;
+  /** Animates water; with a camera, also fades tiles that hide the board behind them. */
+  update(dt: number, camera?: THREE.Camera): void;
   /** Grid index of the tile under the ray, or null. */
   pick(raycaster: THREE.Raycaster): number | null;
 };
@@ -77,6 +80,25 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
       // BoxGeometry face order: +x, -x, +y, -y, +z, -z.
       m = [side, side, top, side, side, side];
       materials.set(terrain, m);
+    }
+    return m;
+  };
+  // See-through copies for tiles in the way of the camera.
+  const fadedMaterials = new Map<TerrainId, THREE.Material[]>();
+  const fadedFor = (terrain: TerrainId) => {
+    let m = fadedMaterials.get(terrain);
+    if (!m) {
+      const copies = new Map<THREE.Material, THREE.Material>();
+      m = materialsFor(terrain).map((solid) => {
+        let copy = copies.get(solid);
+        if (!copy) {
+          copy = solid.clone();
+          Object.assign(copy, { transparent: true, opacity: FADED_OPACITY, depthWrite: false });
+          copies.set(solid, copy);
+        }
+        return copy;
+      });
+      fadedMaterials.set(terrain, m);
     }
     return m;
   };
@@ -163,10 +185,39 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
     ]),
   ) as Record<string, THREE.Material>;
 
+  // A tile is faded when it hides a point a little above another tile's top,
+  // roughly where a unit standing there would be. The camera is orthographic,
+  // so this only changes when the view direction does.
+  const faded = new Set<THREE.Object3D>();
+  const viewDir = new THREE.Vector3();
+  const lastDir = new THREE.Vector3();
+  const ray = new THREE.Raycaster();
+  const RAY_BACK = 100;
+  const updateFading = (camera: THREE.Camera) => {
+    camera.getWorldDirection(viewDir);
+    if (viewDir.distanceToSquared(lastDir) < 1e-8) return;
+    lastDir.copy(viewDir);
+    faded.clear();
+    // The first call can come before the first render has placed the tiles.
+    group.updateMatrixWorld();
+    tileMeshes.forEach((mesh, i) => {
+      const p = posOf(grid, i);
+      const point = new THREE.Vector3(p.x, tileTop(grid, p) + HIDDEN_HEIGHT, p.y);
+      ray.set(point.clone().addScaledVector(viewDir, -RAY_BACK), viewDir);
+      ray.far = RAY_BACK;
+      for (const hit of ray.intersectObjects(tileMeshes, false)) if (hit.object !== mesh) faded.add(hit.object);
+    });
+    tileMeshes.forEach((mesh, i) => {
+      const terrain = grid.tiles[i]!.terrain;
+      mesh.material = faded.has(mesh) ? fadedFor(terrain) : materialsFor(terrain);
+    });
+  };
+
   return {
     center: new THREE.Vector3((grid.width - 1) / 2, 0, (grid.depth - 1) / 2),
-    update(dt) {
+    update(dt, camera) {
       for (const t of waterTextures) t.offset.x = (t.offset.x + dt * 0.05) % 1;
+      if (camera) updateFading(camera);
     },
     setHazards(hazards) {
       hazardGroup.clear();
@@ -193,7 +244,9 @@ export function createBoard(parent: THREE.Object3D, grid: Grid): BoardView {
       if (p) selection.position.copy(tileCenter(grid, p)).setY(tileTop(grid, p) + 0.025);
     },
     pick(raycaster) {
-      const hit = raycaster.intersectObjects(tileMeshes, false)[0];
+      // Click through faded tiles to the board they hide.
+      const hits = raycaster.intersectObjects(tileMeshes, false);
+      const hit = hits.find((h) => !faded.has(h.object)) ?? hits[0];
       return hit ? (hit.object.userData.index as number) : null;
     },
   };

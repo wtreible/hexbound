@@ -541,7 +541,7 @@ export function mountBattle(
   let pointer: PointerEvent | null = null;
   view.onFrame = (dt) => {
     units.update(dt * speed);
-    board.update(dt);
+    board.update(dt, view.camera);
     const i = pointer ? pickAt(pointer) : null;
     if (i !== hovered) {
       hovered = i;

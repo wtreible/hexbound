@@ -33,3 +33,4 @@ One file per decision, numbered in the order they were made. `docs/DESIGN.md` is
 | [0023](0023-fft-job-system.md) | FFT-style job system: learn abilities with JP, a job tree, four ability slots | M7 |
 | [0024](0024-meta-progression-and-relics.md) | Meta progression: starting jobs, Codex, relics and shrine unlocks | M7 |
 | [0025](0025-m7-combos-enemies-and-maps.md) | M7 before M3; new combos, enemies, AI presets and maps | M7 |
+| [0026](0026-see-through-walls.md) | Tiles in front of the camera turn see-through | M7 |
