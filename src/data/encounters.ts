@@ -28,33 +28,36 @@ const e = (name: string, job: string): EnemySpec => ({ name, job });
 const boss = (name: string, job: string): EnemySpec => ({ name, job, scale: BOSS_SCALE });
 
 export const ENCOUNTERS: Encounter[] = [
-  // --- Act 1: the old road ---
+  // --- Act 1: the old road (bandits, and the first restless dead) ---
   { id: 'bandits', name: 'Bandits', act: 1, kind: 'battle', enemies: [e('Bandit', 'squire'), e('Bandit', 'squire'), e('Poacher', 'archer')] },
   { id: 'poachers', name: 'Poachers', act: 1, kind: 'battle', objective: 'escort', enemies: [e('Poacher', 'archer'), e('Poacher', 'archer'), e('Cutpurse', 'thief')] },
   { id: 'highwaymen', name: 'Highwaymen', act: 1, kind: 'battle', objective: 'hold', enemies: [e('Cutpurse', 'thief'), e('Bandit', 'squire'), e('Poacher', 'archer')] },
+  { id: 'grave-robbers', name: 'Grave Robbers', act: 1, kind: 'battle', enemies: [e('Risen', 'grunt'), e('Risen', 'grunt'), e('Ghoul', 'ghoul')] },
   { id: 'bandit-crew', name: 'Bandit Crew', act: 1, kind: 'elite', enemies: [e('Bandit', 'squire'), e('Bandit', 'squire'), e('Poacher', 'archer'), e('Quack', 'chemist')] },
   {
     id: 'bandit-chief', name: 'The Bandit Chief', act: 1, kind: 'boss', objective: 'leader',
     enemies: [boss('Bandit Chief', 'squire'), e('Poacher', 'archer'), e('Cutpurse', 'thief')],
   },
 
-  // --- Act 2: the drowned chapel ---
-  { id: 'cultists', name: 'Cultists', act: 2, kind: 'battle', enemies: [e('Cultist', 'mage'), e('Cultist', 'acolyte'), e('Zealot', 'squire'), e('Zealot', 'squire')] },
-  { id: 'raiders', name: 'Raiders', act: 2, kind: 'battle', objective: 'escape', enemies: [e('Raider', 'squire'), e('Raider', 'thief'), e('Raider', 'thief'), e('Slinger', 'archer')] },
-  { id: 'hedge-witches', name: 'Hedge Witches', act: 2, kind: 'battle', objective: 'leader', enemies: [e('Witch', 'mage'), e('Witch', 'mage'), e('Herbalist', 'chemist'), e('Zealot', 'squire')] },
-  { id: 'chapel-guard', name: 'Chapel Guard', act: 2, kind: 'elite', enemies: [e('Templar', 'paladin'), e('Cultist', 'mage'), e('Cultist', 'acolyte'), e('Zealot', 'squire'), e('Slinger', 'archer')] },
+  // --- Act 2: the drowned chapel (the undead and their cult) ---
+  { id: 'cultists', name: 'Cultists', act: 2, kind: 'battle', enemies: [e('Necromancer', 'necromancer'), e('Risen', 'grunt'), e('Risen', 'grunt'), e('Cult Healer', 'cult-healer')] },
+  { id: 'ghoul-pack', name: 'Ghoul Pack', act: 2, kind: 'battle', objective: 'escape', enemies: [e('Ghoul', 'ghoul'), e('Ghoul', 'ghoul'), e('Bone Archer', 'bone-archer'), e('Risen', 'grunt')] },
+  { id: 'hedge-witches', name: 'Hedge Witches', act: 2, kind: 'battle', objective: 'leader', enemies: [e('Warlock', 'warlock'), e('Firecaller', 'firecaller'), e('Shieldbearer', 'shieldbearer')] },
+  { id: 'bone-pit', name: 'The Bone Pit', act: 2, kind: 'battle', enemies: [e('Bone Golem', 'bone-golem'), e('Risen', 'grunt'), e('Bone Archer', 'bone-archer')] },
+  { id: 'chapel-guard', name: 'Chapel Guard', act: 2, kind: 'elite', enemies: [e('Shieldbearer', 'shieldbearer'), e('Necromancer', 'necromancer'), e('Cult Healer', 'cult-healer'), e('Bone Archer', 'bone-archer'), e('Wraith', 'wraith')] },
   {
     id: 'grave-warden', name: 'The Grave Warden', act: 2, kind: 'boss', objective: 'leader',
-    enemies: [boss('Grave Warden', 'paladin'), e('Cultist', 'mage'), e('Cultist', 'acolyte'), e('Slinger', 'archer')],
+    enemies: [boss('Grave Warden', 'paladin'), e('Necromancer', 'necromancer'), e('Cult Healer', 'cult-healer'), e('Bone Archer', 'bone-archer')],
   },
 
   // --- Act 3: the hexbound keep ---
-  { id: 'keep-watch', name: 'Keep Watch', act: 3, kind: 'battle', enemies: [e('Warden', 'ranger'), e('Warden', 'ranger'), e('Blade', 'spellblade'), e('Sister', 'acolyte')] },
-  { id: 'saboteurs', name: 'Saboteurs', act: 3, kind: 'battle', objective: 'hold', enemies: [e('Sapper', 'saboteur'), e('Sapper', 'saboteur'), e('Blade', 'spellblade'), e('Seer', 'oracle')] },
-  { id: 'hex-knights', name: 'Hex Knights', act: 3, kind: 'battle', objective: 'escort', enemies: [e('Hex Knight', 'paladin'), e('Hex Knight', 'spellblade'), e('Seer', 'oracle'), e('Warden', 'ranger')] },
-  { id: 'inner-circle', name: 'Inner Circle', act: 3, kind: 'elite', enemies: [e('Hex Knight', 'paladin'), e('Blade', 'spellblade'), e('Seer', 'oracle'), e('Sapper', 'saboteur'), e('Warden', 'ranger')] },
+  { id: 'keep-watch', name: 'Keep Watch', act: 3, kind: 'battle', enemies: [e('Sniper', 'sniper'), e('Sniper', 'sniper'), e('Hexed Knight', 'hexed-knight'), e('Cult Healer', 'cult-healer')] },
+  { id: 'saboteurs', name: 'Saboteurs', act: 3, kind: 'battle', objective: 'hold', enemies: [e('Sapper', 'saboteur'), e('Sapper', 'saboteur'), e('Assassin', 'assassin'), e('Warlock', 'warlock')] },
+  { id: 'hex-knights', name: 'Hex Knights', act: 3, kind: 'battle', objective: 'escort', enemies: [e('Hexed Knight', 'hexed-knight'), e('Hexed Knight', 'hexed-knight'), e('Warlock', 'warlock'), e('Wraith', 'wraith')] },
+  { id: 'golem-guard', name: 'Golem Guard', act: 3, kind: 'battle', enemies: [e('Bone Golem', 'bone-golem'), e('Bone Golem', 'bone-golem'), e('Firecaller', 'firecaller'), e('Sniper', 'sniper')] },
+  { id: 'inner-circle', name: 'Inner Circle', act: 3, kind: 'elite', enemies: [e('Hexed Knight', 'hexed-knight'), e('Assassin', 'assassin'), e('Warlock', 'warlock'), e('Necromancer', 'necromancer'), e('Sniper', 'sniper')] },
   {
     id: 'hexbinder', name: 'The Hexbinder', act: 3, kind: 'boss', objective: 'leader',
-    enemies: [boss('The Hexbinder', 'oracle'), e('Hex Knight', 'spellblade'), e('Hex Knight', 'paladin'), e('Warden', 'ranger'), e('Sapper', 'saboteur')],
+    enemies: [boss('The Hexbinder', 'oracle'), e('Hexed Knight', 'hexed-knight'), e('Wraith', 'wraith'), e('Warlock', 'warlock'), e('Cult Healer', 'cult-healer')],
   },
 ];

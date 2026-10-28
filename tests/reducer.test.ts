@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyIntent, type IntentResult } from '../src/rules/reducer';
+import { ACT_JP, applyIntent, type IntentResult } from '../src/rules/reducer';
 import { createRng } from '../src/rules/rng';
-import { CT_CARRY } from '../src/rules/turn';
+import { CLEAR_BONUS_JP, CT_CARRY } from '../src/rules/turn';
 import type { GameState, Intent } from '../src/rules/types';
 import { battle, flat, makeUnit } from './fixtures';
 
@@ -113,13 +113,13 @@ describe('face and wait', () => {
 });
 
 describe('M4: JP, Resolve and traps', () => {
-  it('awards 8-12 JP to the current job for acting', () => {
+  it('awards ACT_JP to the current job for acting', () => {
     const r = ok(apply(state(), { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } }));
     const jp = r.events.find((e) => e.type === 'jp');
     expect(jp).toMatchObject({ unitId: 'a', job: 'archer' });
     const amount = (jp as { amount: number }).amount;
-    expect(amount).toBeGreaterThanOrEqual(8);
-    expect(amount).toBeLessThanOrEqual(12);
+    expect(amount).toBeGreaterThanOrEqual(ACT_JP.min);
+    expect(amount).toBeLessThanOrEqual(ACT_JP.max);
     expect(r.state.units.find((u) => u.id === 'a')!.jp.archer).toBe(amount);
   });
 
@@ -127,8 +127,8 @@ describe('M4: JP, Resolve and traps', () => {
     const s = state();
     const last = { ...s, units: s.units.filter((u) => u.id !== 'e2').map((u) => (u.id === 'e1' ? { ...u, hp: 1 } : u)) };
     const r = ok(apply(last, { type: 'act', unitId: 'a', abilityId: 'shoot', target: { x: 1, y: 1 } }));
-    expect(r.events).toContainEqual(expect.objectContaining({ type: 'jp', unitId: 's', amount: 20 }));
-    expect(r.state.units.find((u) => u.id === 's')!.jp.squire).toBe(20);
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'jp', unitId: 's', amount: CLEAR_BONUS_JP }));
+    expect(r.state.units.find((u) => u.id === 's')!.jp.squire).toBe(CLEAR_BONUS_JP);
   });
 
   it('rejects ultimates without full Resolve and locked abilities', () => {

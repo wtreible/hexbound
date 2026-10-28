@@ -1,7 +1,7 @@
 # Hexbound Company — Design & Handoff Document
 
 > A co-op tactics roguelike for 2–4 players, played in the browser and hosted for free on GitHub Pages.
-> FFT-style job system, 15 hybrid classes, chibi 3D units on blocky height-mapped grids.
+> FFT-style job tree with abilities learned for JP, chibi 3D units on blocky height-mapped grids.
 
 This document is the source of truth for starting the build. A fresh Claude Code session should read it in full, then work through **§12 Milestones** in order. Each milestone has acceptance criteria. Don't start a milestone until the previous one meets its criteria.
 
@@ -9,7 +9,7 @@ This document is the source of truth for starting the build. A fresh Claude Code
 
 ## 1. Pillars
 
-1. **Combine jobs into hybrids.** The class grid is what players explore. Every pair of base jobs makes something new.
+1. **Build units across jobs.** The job tree is what players explore: learn abilities in one job and carry them into the next, FFT-style ([decision 0023](decisions/0023-fft-job-system.md)).
 2. **Co-op is the default.** Simultaneous planning, cross-player combo abilities, a shared run. Solo play is co-op with one player.
 3. **Short runs, permanent stakes.** A run is 45–60 minutes. Units can die permanently. Meta-unlocks expand options, not raw power.
 4. **Zero infrastructure.** Static files on GitHub Pages. No game server, no accounts, no paid services.
@@ -130,61 +130,54 @@ Lobby → Squad draft → Run map (≈12 nodes, 3 acts) → Boss → Results →
 ## 6. Job system
 
 ### 6.1 Slots
-Each unit has:
-- **Primary job:** sets the unit's stats, the primary action set and what equipment it can use.
-- **Secondary action set:** any action set from a job this unit has reached Rank 1 in.
-- **Passive:** one learned passive from any job (reactions such as Counter, and supports such as +1 Move).
-- **Ultimate:** each mastered job grants one ultimate, which uses a "Resolve" meter that fills as the unit takes or deals damage. You equip one ultimate at a time.
+Each unit has (FFT-style; [decision 0023](decisions/0023-fft-job-system.md)):
+- **Primary job:** sets the unit's stats, basic attack and equipment, and its learned actions in that job are on the command list.
+- **Secondary:** the learned actions of one other job.
+- **Reaction, Support, Movement:** one learned ability of each kind, from any job (e.g. Counter, JP Boost, Fleet).
+- **Ultimate:** one learned ultimate from any job, fired with a full **Resolve** meter that fills as the unit takes or deals damage.
 
 ### 6.2 Progression
-- **JP** are earned per action taken in battle (+8 to +12) plus a battle clear bonus (+20), credited to the unit's current job.
-- **Ranks:** 0 → 1 (60 JP) → 2 (150 JP) → **Mastered** (300 JP). Each rank unlocks abilities in that job.
-- **Tuning target:** a base job can be mastered in about 3 battles, which gives 2–3 job changes per unit per run.
-- Job changes happen **only at Camp nodes**.
+- **JP** are earned per action in battle (+10 to +16) plus a battle clear bonus (+30), credited to the unit's current job.
+- **Learning:** each job teaches a list of abilities, each with a JP price. At camp, a unit spends a job's unspent JP to learn one of that job's abilities. Learned abilities are kept forever, whatever job the unit is in.
+- **Job level** comes from total JP ever earned in a job: Lv 2 at 100, then 250, 450, 700, 1000, 1400, 1900 (Lv 8). Spending JP never lowers it.
+- **Mastery:** a job is mastered when every one of its abilities is learned.
+- **Tree:** starting jobs are always open; advanced and master jobs open when the unit reaches the listed job levels (§6.4).
+- Job and loadout changes happen **only at Camp nodes**. Changing job keeps current HP and refills MP.
 
-**As built:** how ranks unlock passives and ultimates, JP amounts, Resolve, hazards, reactions and Ignite are settled in decisions [0009](decisions/0009-job-progression.md)–[0013](decisions/0013-ignite-combo.md).
+**As built:** JP amounts, Resolve, hazards, reactions and Ignite are settled in decisions [0010](decisions/0010-resolve-and-ultimates.md)–[0013](decisions/0013-ignite-combo.md). Ranks ([0009](decisions/0009-job-progression.md)) and the hybrid grid were replaced by the tree in [0023](decisions/0023-fft-job-system.md).
 
-### 6.3 Base jobs (6)
+### 6.3 The job tree
+Not every pair of jobs makes a new one. Like FFT, a handful of advanced jobs each need levels in one or two earlier jobs. Tier 1 jobs are always available; enemies use their own tier 0 jobs (§10).
 
-| Job | Role | Action set (Rank 0 / 1 / 2) | Passive | Ultimate |
+| Tier | Job | Requires (job levels) | Identity | Abilities |
 |---|---|---|---|---|
-| **Squire** | Frontline | Rally Strike / Guard / Shove (knockback 1) | Counter | Last Stand |
-| **Archer** | Ranged physical | Aim / Pin Shot (−move) / Volley (AoE) | Eagle Eye (+1 range) | Rain of Arrows |
-| **Mage** | Ranged magic | Flame / Frost (slow) / Spark (chain) | Mana Well (+MP regen) | Meteor |
-| **Acolyte** | Healer | Mend / Purify / Revive | Grace (heal +20%) | Sanctuary |
-| **Thief** | Mobility | Steal / Backstab / Smoke (evade zone) | Fleet (+1 move) | Shadow Step |
-| **Chemist** | Items | Potion Toss / Ether / Phoenix Draught | Throw Range +2 | Panacea Rain |
+| 1 | **Squire** | — | Sturdy frontliner. | Rally Strike, Throw Stone, Guard, Shove, Accumulate, First Aid, Counter, JP Boost, Last Stand |
+| 1 | **Archer** | — | Ranged attacker who rewards high ground. | Aim, Pin Shot, Charged Shot, Piercing Shot, Volley, Sixth Sense, Jump +1, Eagle Eye, Rain of Arrows |
+| 1 | **Mage** | — | Elemental damage from range; fragile. | Flame, Frost, Enfeeble, Spark, Inferno, Mana Well, Magic Boost, Meteor |
+| 1 | **Acolyte** | — | Healer and protector. | Mend, Purify, Protect, Shell, Regen, Revive, Grace, Auto-Mend, Sanctuary |
+| 1 | **Thief** | — | Fast skirmisher who strikes from behind. | Steal, Trip, Backstab, Blinding Dust, Smoke, Vanish Step, Fleet, Shadow Step |
+| 1 | **Chemist** | — | Potions and remedies. | Potion Toss, Antidote, Ether, Phoenix Draught, Hi-Potion, Throw Range +2, Auto-Potion, Panacea Rain |
+| 2 | **Paladin** | Squire 3, Acolyte 2 | Holy knight who shields allies. | Holy Strike, Shield Ally, Smite, Consecrate, Cover, Holy Bulwark |
+| 2 | **Spellblade** | Squire 3, Mage 3 | Elemental swordplay fuelled by MP. | Fire Blade, Frost Blade, Thunder Blade, Drain Blade, Arcane Edge, Elemental Fury |
+| 2 | **Oracle** | Mage 3, Acolyte 3 | Bends the turn order. | Haste, Slow, Quicken, Delay, Foresight, Stasis |
+| 2 | **Ranger** | Archer 3, Thief 2 | Traps and long shots. | Snare Trap, Long Shot, Barbed Arrow, Hunter's Volley, Pathfinder, Deadeye |
+| 2 | **Saboteur** | Thief 3, Chemist 3 | Mines, oil and poison. | Oil Slick, Sabotage, Land Mine, Poison Cloud, Elusive, Scorched Earth |
+| 2 | **Dragoon** | Squire 4, Archer 2 | Leaps off the board and lands later; ignores height. | Jump, Spear Sweep, Dragon Heart, Leap, Dragon Dive |
+| 2 | **Monk** | Squire 2, Acolyte 3 | Unarmed fighter who heals with chi. | Wave Fist, Chakra, Second Wind, Martial Arts, Swift Feet, Hundred Fists |
+| 2 | **Hexer** | Mage 3, Thief 3 | Curses and strips buffs. | Curse, Dispel, Hex of Silence, Doom Bolt, Malice, Unravel |
+| 2 | **Grenadier** | Archer 3, Chemist 3 | Bombs, oil and fire. | Frag Bomb, Oil Flask, Smoke Bomb, Firebomb, Demolitions, Carpet Bomb |
+| 2 | **Seer** | Archer 3, Acolyte 3 | Marks targets and steadies allies. | Mark, Focus, Blessing, True Shot, Third Eye, Prophecy |
+| 3 | **Templar** | Paladin 4, Mage 3 | Holy-magic tank with party-wide wards. | Holy Lance, Aegis, Judgment, Holy Ward, Divine Shield |
+| 3 | **Chronomancer** | Oracle 4, Thief 3 | Extra turns for allies, lost turns for foes. | Age, Time Slip, Quickstep, Time Sense, Time Loop |
+| 3 | **Runeknight** | Spellblade 4, Acolyte 3 | Runes on tiles that empower allies. | Rune Blade, Rune of Power, Rune Ward, Runeburst, Runic Edge, Runic Storm |
 
-### 6.4 Hybrid classes (15)
-Unlocked for a unit when it has **mastered both** parent jobs. Each hybrid has its own action set (4 abilities), one passive and one ultimate, and can use either parent's action set as its secondary.
+Abilities and JP prices live in `src/data/jobs.ts` and `src/data/abilities.ts`; the in-game Codex shows them. New jobs are data only.
 
-| Parents | Hybrid | Identity |
-|---|---|---|
-| Squire + Archer | **Dragoon** | Jump attacks that leave the board and land N ticks later; ignores height. |
-| Squire + Mage | **Spellblade** | Weapon strikes that carry an element; drains MP to boost damage. |
-| Squire + Acolyte | **Paladin** | Takes hits meant for adjacent allies; holy damage. |
-| Squire + Thief | **Duelist** | Ripostes and position swaps; punishes isolated enemies. |
-| Squire + Chemist | **Field Medic** | Heals while moving; drags downed allies to safety. |
-| Archer + Mage | **Arcane Archer** | Elemental arrows; spells that use bow range and line of sight. |
-| Archer + Acolyte | **Seer** | Reveals intents, predicts enemy actions, buffs hit chance. |
-| Archer + Thief | **Ranger** | Traps; sets up overwatch shots that fire when enemies move. |
-| Archer + Chemist | **Grenadier** | Thrown and fired bombs; terrain hazards (fire, oil). |
-| Mage + Acolyte | **Oracle** | Time magic: Haste, Slow, Stop, CT manipulation. |
-| Mage + Thief | **Hexer** | Curses, damage over time, lifting buffs from enemies. |
-| Mage + Chemist | **Alchemist** | Converts items into spells; transmutes terrain tiles. |
-| Acolyte + Thief | **Monk** | Unarmed combos; chi heals; extra Move. |
-| Acolyte + Chemist | **Apothecary** | Stronger, longer-lasting buffs; cleanses everything. |
-| Thief + Chemist | **Saboteur** | Mines, oil slicks, poison clouds; zone denial. |
+### 6.4 Adding jobs
+A new job is a `JobDef` with a tier, its requirements and a priced ability list. Prefer filling gaps in the tree (e.g. a Beastmaster from Ranger + Chemist) over making every pair a job.
 
-### 6.5 Prestige classes (tier 3, ship 4 first)
-Unlocked by mastering a hybrid plus the one listed base job.
-
-| Requirement | Prestige | Identity |
-|---|---|---|
-| Paladin + Mage | **Templar** | Holy-magic tank; party-wide shields. |
-| Ranger + Chemist | **Beastmaster** | Tames a defeated enemy as a pet unit for the battle. |
-| Oracle + Thief | **Chronomancer** | Takes an extra turn; rewinds one unit's last action. |
-| Spellblade + Acolyte | **Runeknight** | Writes runes on tiles; ally weapons pick up the rune's effect. |
+### 6.5 (Removed)
+The 15 hybrids and 4 prestige classes were replaced by the tree in §6.3 ([decision 0023](decisions/0023-fft-job-system.md)).
 
 ### 6.6 Cross-player combos (multiplayer only)
 These trigger only when the two units are **controlled by different players**, so they need coordination. Show them in the planning preview with a link icon.
@@ -193,17 +186,19 @@ These trigger only when the two units are **controlled by different players**, s
 |---|---|---|
 | **Channel** | A Spellblade attacks while next to an ally Mage who planned a spell this phase | The spell is delivered through the strike: single target, +50% damage, no charge time. |
 | **Ignite** | A Grenadier or Mage fire ability hits a Saboteur's oil tile | The oil explodes in a radius-2 AoE and leaves burning terrain for 2 rounds. |
-| **Pincer** | Two allies attack the same target from opposite sides in the same phase | Both hits count as attacks from behind. |
-| **Aegis Link** | A Paladin guards an ally who is being healed by an Acolyte line unit | The heal is mirrored onto the Paladin. |
-| **Volley Mark** | A Seer marks a target, then an Archer line unit fires at it | The shot can't miss and pierces to the next enemy. |
+| **Pincer** | Two allies attack the same target from opposite sides in the same phase | The second hit counts as from behind. |
+| **Aegis Link** | A holy heal lands on a unit next to another player's unit with Cover equipped | The heal is mirrored onto the Cover unit. |
+| **Volley Mark** | A target Marked by one player is shot with a bow by another | The shot can't miss. |
 
-Start with these 5. They're data-driven (§8), so you can add more later without changing engine code.
+Start with these 5. They're data-driven (§8), so you can add more later without changing engine code. As built: [decision 0025](decisions/0025-m7-combos-enemies-and-maps.md).
 
 ### 6.7 Meta progression (between runs, stored in `localStorage`)
 - When a base job is mastered for the first time in any run, it's added to the pool of starting jobs. New profiles start with Squire, Archer and Acolyte.
-- When a hybrid is unlocked for the first time, its codex entry and art appear in the Codex screen.
-- New shrine events and new starting relics (minor perks, not stat inflation).
+- When a job is first held or unlocked by any unit, its entry and abilities appear in the Codex screen.
+- New shrine events and new starting relics (minor perks, not stat inflation), unlocked by milestones such as finishing or winning a run.
 - In multiplayer, each player's own profile controls which jobs **they** can draft.
+
+**As built:** [decision 0024](decisions/0024-meta-progression-and-relics.md).
 
 ## 7. Multiplayer
 
@@ -252,14 +247,13 @@ type AbilityId = string;
 interface JobDef {
   id: JobId;
   name: string;
-  tier: 1 | 2 | 3;
-  requires: JobId[];                 // [] for base, two for hybrid, [hybrid, base] for prestige
+  tier: 0 | 1 | 2 | 3;               // 0 = enemy-only
+  requires: { job: JobId; level: number }[];  // job levels that open it; [] for tier 0-1
   statMods: Partial<Record<Stat, number>>;
   move: number; jump: number;
   growth: Partial<Record<Stat, number>>;
-  actionSet: { abilityId: AbilityId; rank: 0 | 1 | 2 | 3 }[];
-  passives: AbilityId[];
-  ultimate: AbilityId;
+  abilities: { abilityId: AbilityId; jp: number }[];  // what it teaches, and the price
+  ai?: AiPreset;                     // enemies' AI preset
   equip: EquipTag[];
   model: string;                     // key into asset manifest
 }
@@ -310,7 +304,7 @@ function applyIntent(state: GameState, intent: Intent, rng: Rng):
   { state: GameState; events: GameEvent[] } | { error: string };
 ```
 
-**Rule:** abilities never contain custom code. If a new ability needs a new behavior, add a new `Effect` type to the pipeline. This keeps the 15 hybrids and their combos cheap to build.
+**Rule:** abilities never contain custom code. If a new ability needs a new behavior, add a new `Effect` type to the pipeline. This keeps new jobs and their combos cheap to build.
 
 **Conventions and rule interpretations** settled while building are recorded in [`docs/decisions/`](decisions/README.md): grid, facing and movement ([0003](decisions/0003-grid-and-movement-conventions.md)), the CT timeline ([0004](decisions/0004-ct-timeline-and-phases.md)), combat formulas ([0005](decisions/0005-combat-formulas.md)), and downed units, knockback and effects ([0006](decisions/0006-downed-knockback-and-effects.md)).
 
@@ -365,7 +359,7 @@ These are starting points I believe are CC0. **Check the license file in every d
 
 Each milestone ends in a playable, deployed build.
 
-**Build order: M0, M1, M2, M4, M5, M6, M3, M7.** Networking (M3) was moved after the art pass because we can't test across two networks yet ([decision 0008](decisions/0008-defer-networking-milestone.md)). Milestone numbers are unchanged so existing references stay valid.
+**Build order: M0, M1, M2, M4, M5, M6, M7, M3.** Networking (M3) was moved to the end because we can't test across two networks yet ([decisions 0008](decisions/0008-defer-networking-milestone.md), [0025](decisions/0025-m7-combos-enemies-and-maps.md)). Milestone numbers are unchanged so existing references stay valid.
 
 **M0: Skeleton & deploy**
 - Vite + TS + Three.js project, `CLAUDE.md`, `CREDITS.md`, GitHub Actions deploy.
@@ -384,7 +378,7 @@ Each milestone ends in a playable, deployed build.
 - Vitest coverage for damage math, pathfinding, the timeline and the reducer.
 - *Done when:* a solo 4v4 Rout battle can be won or lost from start to finish.
 
-**M3: Networked battle** *(built after M6; see decision 0008)*
+**M3: Networked battle** *(built last; see decisions 0008 and 0025)*
 - Host/client sessions, lobby, intents → events → state hash flow, snapshot on join.
 - Simultaneous planning with ghost previews and Ready-up.
 - AI takeover on disconnect, rejoin.
@@ -409,8 +403,9 @@ Each milestone ends in a playable, deployed build.
 - Tile textures, UI skin, fonts, SFX, music.
 - *Done when:* screenshots look the way §9.1 describes.
 
-**M7: Content complete**
-- All 15 hybrids, 4 prestige classes, all 5 cross-player combos.
+**M7: Content complete** *(built before M3)*
+- The FFT-style job tree (§6.3): 6 starting, 10 advanced and 3 master jobs, abilities learned with JP. Replaces the 15 hybrids and 4 prestige classes.
+- Cross-player combos Pincer, Aegis Link and Volley Mark (Channel waits for M3).
 - Meta progression and the Codex screen.
 - 12+ enemy types, 15+ map templates.
 - *Done when:* balance passes are the only work left.

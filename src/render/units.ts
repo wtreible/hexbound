@@ -103,7 +103,8 @@ function jobBadge(u: Unit): THREE.Sprite {
   return sprite;
 }
 
-export function createUnits(parent: THREE.Object3D, grid: Grid, library: ModelLibrary | null): UnitsView {
+export function createUnits(parent: THREE.Object3D, grid: Grid, library: ModelLibrary | null, opts: { bars?: boolean } = {}): UnitsView {
+  const showBars = opts.bars ?? true;
   const meshes = new Map<string, UnitMesh>();
   const bodyGeometry = new THREE.CapsuleGeometry(0.25, 0.35, 4, 12).translate(0, 0.425, 0);
   const noseGeometry = new THREE.ConeGeometry(0.1, 0.22, 10).rotateX(Math.PI / 2).translate(0, 0.55, 0.3);
@@ -152,6 +153,7 @@ export function createUnits(parent: THREE.Object3D, grid: Grid, library: ModelLi
     const { texture, sprite } = spriteFromCanvas(canvas);
     sprite.scale.set(0.7, 0.0875, 1);
     sprite.position.y = 1.2;
+    sprite.visible = showBars;
     const badge = jobBadge(u);
 
     root.add(disc, figure, ring, grave, sprite, badge);
@@ -179,7 +181,7 @@ export function createUnits(parent: THREE.Object3D, grid: Grid, library: ModelLi
     const was = m.pose;
     m.pose = pose;
     m.figure.visible = pose !== 'gone';
-    m.bar.sprite.visible = pose !== 'gone';
+    m.bar.sprite.visible = showBars && pose !== 'gone';
     if (m.character) {
       if (pose === 'downed') void m.character.once('die', 'hold');
       else if (pose === 'standing' && was === 'downed') m.character.loop('idle');

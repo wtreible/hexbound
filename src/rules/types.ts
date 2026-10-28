@@ -22,19 +22,32 @@ export type Grid = { width: number; depth: number; tiles: Tile[] };
 
 export type JobId = string;
 export type AbilityId = string;
-export type StatusId = 'guard' | 'pinned' | 'slow' | 'haste' | 'veil' | 'poison' | 'blind' | 'silence' | 'regen';
+export type StatusId =
+  | 'guard' | 'pinned' | 'slow' | 'haste' | 'veil' | 'poison' | 'blind' | 'silence' | 'regen'
+  /** Off the board mid-Jump: can't be targeted until the jump lands. */
+  | 'airborne'
+  /** Marked by a Seer: easier to hit, and the Volley Mark combo's trigger. */
+  | 'mark'
+  | 'weaken' | 'protect' | 'shell' | 'focus' | 'empower';
 /** Things left on tiles: oil (fuel for Ignite), fire (burns at turn start), trap and mine (trigger on entry). */
-export type HazardId = 'oil' | 'fire' | 'trap' | 'mine';
+export type HazardId = 'oil' | 'fire' | 'trap' | 'mine' | 'rune';
 export type Element = 'fire' | 'ice' | 'lightning' | 'holy' | 'dark';
 export type EquipTag = string;
 export type GearSlot = 'weapon' | 'armor' | 'accessory';
 
+/** Kinds of ability a unit can learn (docs/DESIGN.md §6, decision 0023). */
+export type AbilityKind = 'action' | 'reaction' | 'support' | 'movement' | 'ultimate' | 'combo';
+
+/** Equippable passive slots. */
+export type PassiveSlot = 'reaction' | 'support' | 'movement';
+
 export type JobDef = {
   id: JobId;
   name: string;
-  tier: 1 | 2 | 3;
-  /** [] for base jobs, two for hybrids, [hybrid, base] for prestige. */
-  requires: JobId[];
+  /** 1 = starting jobs, 2 = advanced, 3 = elite; 0 = enemy-only. */
+  tier: 0 | 1 | 2 | 3;
+  /** Job levels needed in other jobs before a unit can take this one (FFT-style tree). */
+  requires: { job: JobId; level: number }[];
   /** Multipliers applied to the unit's base stats. */
   statMods: Partial<Record<Stat, number>>;
   move: number;
@@ -42,15 +55,15 @@ export type JobDef = {
   growth: Partial<Record<Stat, number>>;
   /** The job's basic attack, always available. */
   attack: AbilityId;
-  /** Each ability unlocks at the given rank in this job (0 = from the start). */
-  actionSet: { abilityId: AbilityId; rank: 0 | 1 | 2 | 3 }[];
-  /** Learned at Rank 2; equippable on any job afterwards. */
-  passives: AbilityId[];
-  /** Granted on mastery; equippable on any job afterwards. */
-  ultimate: AbilityId;
+  /** Everything learnable in this job and its JP price: actions, reactions, supports, movements and one ultimate. */
+  abilities: { abilityId: AbilityId; jp: number }[];
+  /** One-line description for the job list and Codex. */
+  description: string;
   equip: EquipTag[];
   /** Key into the asset manifest. */
   model: string;
+  /** Enemy-only jobs: how the AI plays them (rules/ai.ts presets). Default berserker. */
+  ai?: 'berserker' | 'coward' | 'healer' | 'sniper' | 'boss';
 };
 
 export type AreaShape = 'single' | 'cross' | 'diamond' | 'line' | 'cone';
@@ -76,7 +89,11 @@ export type Effect =
   | { type: 'mp'; amount: number; steal?: boolean }
   | { type: 'ct'; delta: number }
   /** Leaves a hazard on each walkable tile in the area. Traps and mines only go on empty tiles. */
-  | { type: 'hazard'; hazard: HazardId; rounds: number };
+  | { type: 'hazard'; hazard: HazardId; rounds: number }
+  /** Strips the target's helpful statuses. */
+  | { type: 'dispel' }
+  /** Puts a new enemy unit on an empty tile next to the target tile. */
+  | { type: 'summon'; job: JobId; name: string };
 
 /** Passive abilities (docs/DESIGN.md §6.1): supports and reactions. */
 export type PassiveEffect =
@@ -88,15 +105,28 @@ export type PassiveEffect =
   /** Strike back with the basic attack when hit in melee. */
   | { type: 'counter' }
   /** Take single-target hostile abilities aimed at an adjacent ally. */
-  | { type: 'cover' };
+  | { type: 'cover' }
+  /** More JP from every source. */
+  | { type: 'jp-boost'; pct: number }
+  /** More damage, optionally only with abilities carrying a tag. */
+  | { type: 'damage-boost'; pct: number; tag?: string }
+  /** After surviving a hit, heal a share of the damage taken. */
+  | { type: 'reaction-heal'; pct: number };
 
-/** What sets off a cross-player combo (docs/DESIGN.md §6.6). */
-export type ComboTrigger = { type: 'element-on-hazard'; element: Element; hazard: HazardId; crossPlayer: boolean };
+/** What sets off a cross-player combo (docs/DESIGN.md §6.6). Each type is handled once in rules/abilities.ts. */
+export type ComboTrigger =
+  | { type: 'element-on-hazard'; element: Element; hazard: HazardId; crossPlayer: boolean }
+  /** Two units of different players hit the same target from opposite sides in one phase. */
+  | { type: 'flank'; crossPlayer: boolean }
+  /** A heal from an ability tagged `tag` lands next to an ally with Cover. */
+  | { type: 'heal-guard'; tag: string; crossPlayer: boolean }
+  /** An ability tagged `tag` targets a unit carrying `status`. */
+  | { type: 'marked-shot'; tag: string; status: StatusId; crossPlayer: boolean };
 
 export type AbilityDef = {
   id: AbilityId;
   name: string;
-  kind: 'action' | 'passive' | 'ultimate' | 'combo';
+  kind: AbilityKind;
   cost?: { mp?: number; item?: string; resolve?: number };
   /** Horizontal (Manhattan) distance. heightBonus: +1 max range per 2 tiers above the target. */
   range: { min: number; max: number; los: boolean; heightBonus?: boolean };
@@ -107,7 +137,7 @@ export type AbilityDef = {
   effects: Effect[];
   /** Which units in the area are affected. Default 'all' (friendly fire). */
   affects?: 'all' | 'foes' | 'allies';
-  /** For kind 'passive'. */
+  /** For reactions, supports and movements. */
   passive?: PassiveEffect[];
   /** For kind 'combo'. */
   trigger?: ComboTrigger;
@@ -127,11 +157,17 @@ export type Unit = {
   job: JobId;
   /** Base stats before job multipliers. base.move and base.jump add to the job's values. */
   base: Record<Stat, number>;
-  /** Cumulative JP earned in each job; rank comes from this (rules/jobs.ts). */
+  /** Unspent JP in each job. */
   jp: Record<JobId, number>;
-  /** Action set borrowed from another job the unit has reached Rank 1 in. */
+  /** All JP ever earned in each job; job level comes from this (rules/jobs.ts). */
+  jpTotal: Record<JobId, number>;
+  /** Every ability the unit has learned, from any job. */
+  learned: AbilityId[];
+  /** Another job whose learned actions this unit can use. */
   secondary?: JobId;
-  passive?: AbilityId;
+  reaction?: AbilityId;
+  support?: AbilityId;
+  movement?: AbilityId;
   ultimate?: AbilityId;
   /** Equipped item ids by slot (src/data/items.ts). */
   gear?: Partial<Record<GearSlot, string>>;
@@ -142,7 +178,8 @@ export type Unit = {
   resolve: number;
   pos: Pos;
   facing: Facing;
-  statuses: { id: StatusId; turns: number }[];
+  /** `by` is the owner of the unit that applied it (for cross-player combos). */
+  statuses: { id: StatusId; turns: number; by?: string }[];
   /**
    * Set while downed (0 HP): full rounds left to revive the unit. Counts down
    * as each round starts; a round that starts at 0 makes it a grave.
@@ -189,6 +226,8 @@ export type GameState = {
   inventory: Record<string, number>;
   /** Items looted from graves this battle; they join the stash afterwards. */
   loot: string[];
+  /** Hits landed this phase, for the Pincer combo. Cleared when a phase starts. */
+  phaseHits?: { attackerId: string; ownerId: string; targetId: string; from: Pos }[];
 };
 
 export type Intent =
@@ -219,7 +258,8 @@ export type GameEvent =
   | { type: 'countered'; unitId: string; targetId: string }
   | { type: 'covered'; unitId: string; forId: string }
   | { type: 'combo'; comboId: string; pos: Pos }
-  | { type: 'jp'; unitId: string; job: JobId; amount: number; rank: number; rankUp: boolean }
+  | { type: 'jp'; unitId: string; job: JobId; amount: number; level: number; levelUp: boolean }
+  | { type: 'summoned'; unitId: string }
   | { type: 'round'; n: number }
   | { type: 'cast'; unitId: string; abilityId: AbilityId; tiles: Pos[]; ticks: number }
   | { type: 'cast-resolved'; unitId: string; abilityId: AbilityId }

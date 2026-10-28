@@ -1,6 +1,6 @@
 # 0012. Passives, reactions and the first hybrid kits
 
-- **Status:** Accepted
+- **Status:** Superseded by 0023
 - **Date:** 2026-10-27
 - **Milestone:** M4
 

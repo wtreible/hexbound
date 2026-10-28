@@ -13,7 +13,14 @@ export type ShrineOutcome =
   | { type: 'level' };
 
 export type ShrineChoice = { label: string; outcomes: ShrineOutcome[]; result: string };
-export type ShrineEvent = { id: string; title: string; text: string; choices: ShrineChoice[] };
+export type ShrineEvent = {
+  id: string;
+  title: string;
+  text: string;
+  choices: ShrineChoice[];
+  /** Profile milestone that adds this event to the pool (decision 0024). */
+  unlock?: 'first-run' | 'first-win';
+};
 
 export const SHRINES: ShrineEvent[] = [
   {
@@ -57,6 +64,20 @@ export const SHRINES: ShrineEvent[] = [
     choices: [
       { label: 'Drink (heal 50%)', outcomes: [{ type: 'hp', pct: 0.5 }], result: 'Wounds close and spirits lift.' },
       { label: 'Fill flasks (2 Potions)', outcomes: [{ type: 'item', itemId: 'potion', count: 2 }], result: 'The flasks will keep.' },
+    ],
+  },
+  {
+    id: 'wandering-master', title: 'Wandering Master', text: 'An old swordmaster offers a lesson to one of you, for a price.', unlock: 'first-run',
+    choices: [
+      { label: 'Pay for the lesson (40 gold, +60 JP)', outcomes: [{ type: 'gold', amount: -40 }, { type: 'jp', amount: 60 }], result: 'Hard lessons, well learned.' },
+      { label: 'Watch from a distance (+15 JP)', outcomes: [{ type: 'jp', amount: 15 }], result: 'You pick up a little.' },
+    ],
+  },
+  {
+    id: 'hexstone', title: 'The Hexstone', text: 'A black stone hums with the same curse that binds your company.', unlock: 'first-win',
+    choices: [
+      { label: 'Touch it (a level for one of you, hurt 20%)', outcomes: [{ type: 'level' }, { type: 'hp', pct: -0.2 }], result: 'Power, and a chill that lingers.' },
+      { label: 'Leave it be', outcomes: [], result: 'Some things are better left alone.' },
     ],
   },
 ];

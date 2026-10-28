@@ -11,7 +11,7 @@ import type { AbilityDef, ActiveUnit, Cast, GameEvent, GameState, Intent, Pos, U
 import { findUnit, isEnemy, isStanding, unitAt } from './units';
 
 /** JP per action taken in battle (docs/DESIGN.md §6.2). */
-export const ACT_JP = { min: 8, max: 12 } as const;
+export const ACT_JP = { min: 10, max: 16 } as const;
 
 export type IntentResult = Step | { error: string };
 
@@ -108,11 +108,19 @@ export function applyIntent(state: GameState, intent: Intent, rng: Rng): IntentR
       const units = r.units.map((u) => {
         if (u.id !== unit.id || u.dead || isEnemy(u)) return u;
         const gain = grantJp(u, amount);
-        r.events.push({ type: 'jp', unitId: u.id, job: u.job, amount, rank: gain.rank, rankUp: gain.rankUp });
+        r.events.push({ type: 'jp', unitId: u.id, job: u.job, amount: gain.amount, level: gain.level, levelUp: gain.levelUp });
         return gain.unit;
       });
       const inventory = item ? { ...state.inventory, [item.itemId]: item.count - 1 } : state.inventory;
-      const next: GameState = { ...state, units, hazards: r.hazards, casts: r.casts ?? state.casts, inventory, turn: mark({ acted: true }) };
+      const next: GameState = {
+        ...state,
+        units,
+        hazards: r.hazards,
+        casts: r.casts ?? state.casts,
+        phaseHits: r.phaseHits ?? state.phaseHits,
+        inventory,
+        turn: mark({ acted: true }),
+      };
       return pruneActive(checkVictory({ state: next, events: r.events }), rng);
     }
     case 'face': {
@@ -134,6 +142,12 @@ function beginCast(state: GameState, casterId: string, ability: AbilityDef, targ
   payAndFace(byId, casterId, ability, target, events);
   const from = byId.get(casterId)!.pos;
   const tiles = areaTiles(state.grid, ability, from, target);
+  // Jump: off the board, out of reach, until it lands.
+  if (ability.tags.includes('jump')) {
+    const caster = byId.get(casterId)!;
+    byId.set(casterId, { ...caster, statuses: [...caster.statuses, { id: 'airborne', turns: 99 }] });
+    events.push({ type: 'status', unitId: casterId, status: 'airborne', added: true });
+  }
   const ticks = ability.chargeTicks!;
   events.push({ type: 'cast', unitId: casterId, abilityId: ability.id, tiles, ticks });
   const casts: Cast[] = [...state.casts, { casterId, abilityId: ability.id, from, target, tiles, ticks }];

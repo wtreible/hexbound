@@ -4,6 +4,7 @@ import '@fontsource/cinzel/600.css';
 import '@fontsource/cinzel/700.css';
 import { audio } from './audio';
 import { glade } from './data/maps/glade';
+import { mountBackdrop } from './render/backdrop';
 import { loadModels, type ModelLibrary } from './render/models';
 import { createPortraits, type Portraits } from './render/portraits';
 import { BASE_STATS } from './data/units';
@@ -11,9 +12,12 @@ import { createScene } from './render/scene';
 import { setupBattle, type BattleSetup } from './rules/battle';
 import { createRng } from './rules/rng';
 import { battleFor, enterNode, finishBattle, isBattle, leaveNode, newRun, node, recruit, type RunState } from './rules/run';
+import { loadProfile, saveProfile } from './profile';
+import { newUnlocks, recordRun, shrinePool } from './rules/profile';
 import { clearRun, loadRun, saveRun } from './save';
 import { mountBattle } from './ui/battle';
 import { mountCamp } from './ui/camp';
+import { mountCodex } from './ui/codex';
 import { mountDraft } from './ui/draft';
 import { mountLobby } from './ui/lobby';
 import { mountRecruit } from './ui/recruit';
@@ -43,15 +47,29 @@ function quickBattle(setup: BattleSetup): BattleSetup {
   return { ...setup, rows: glade.rows, spawns: glade.spawns, enemies, objective };
 }
 
-// One screen at a time; each mount returns something to dispose.
+// One screen at a time; each mount returns something to dispose. Menus get the
+// living diorama behind them; battles bring their own board.
 let current: { dispose(): void } | null = null;
-const show = (next: { dispose(): void }) => {
+let backdrop: { dispose(): void } | null = null;
+const show = (next: () => { dispose(): void }, opts: { backdrop: boolean } = { backdrop: true }) => {
   current?.dispose();
-  current = next;
+  if (opts.backdrop && !backdrop) backdrop = mountBackdrop(view, library);
+  if (!opts.backdrop && backdrop) {
+    backdrop.dispose();
+    backdrop = null;
+  }
+  current = next();
 };
 
 let library: ModelLibrary | null = null;
 let portraits: Portraits | null = null;
+
+/** Meta progression, folded in after every step so an abandoned run still counts what it found. */
+let profile = loadProfile();
+const record = (run: RunState, finished = false) => {
+  profile = recordRun(profile, run, finished);
+  saveProfile(profile);
+};
 
 /** Saves the run and shows whatever screen its state calls for. */
 function go(run: RunState) {
@@ -60,11 +78,15 @@ function go(run: RunState) {
   audio.music(run.status === 'node' && here && isBattle(here.type) ? 'battle' : 'exploration');
   if (run.status === 'won' || run.status === 'lost') {
     clearRun();
-    show(mountResults(uiRoot, run, () => draft()));
+    const before = profile;
+    record(run, true);
+    const unlocks = newUnlocks(before, profile);
+    show(() => mountResults(uiRoot, run, unlocks, () => draft()));
     return;
   }
+  record(run);
   if (run.status === 'map') {
-    show(
+    show(() =>
       mountRunMap(uiRoot, run, {
         onEnter: (id) => {
           audio.play('page');
@@ -88,22 +110,28 @@ function go(run: RunState) {
     const { state } = setupBattle(quickBattle(b.setup));
     const label = `${n.type === 'battle' ? '' : `${NODE_LOOK[n.type].name}: `}${b.encounter.name} · ${b.mapName}`;
     show(
-      mountBattle(view, uiRoot, state, createRng(b.seed), (final) => go(finishBattle(run, final)), {
-        title: label,
-        autoPlay: QUICK,
-        speed: QUICK ? QUICK_SPEED : 1,
-        library,
-        portraits,
-      }),
+      () =>
+        mountBattle(view, uiRoot, state, createRng(b.seed), (final) => go(finishBattle(run, final)), {
+          title: label,
+          autoPlay: QUICK,
+          speed: QUICK ? QUICK_SPEED : 1,
+          library,
+          portraits,
+        }),
+      { backdrop: false },
     );
   } else if (n.type === 'camp') {
-    show(mountCamp(uiRoot, run, { onChange: saveRun, onLeave: (latest) => go(leaveNode(latest)), portraits }));
+    const onChange = (latest: RunState) => {
+      saveRun(latest);
+      record(latest);
+    };
+    show(() => mountCamp(uiRoot, run, { onChange, onLeave: (latest) => go(leaveNode(latest)), portraits }));
   } else if (n.type === 'shop') {
-    show(mountShop(uiRoot, run, { onChange: saveRun, onLeave: (latest) => go(leaveNode(latest)) }));
+    show(() => mountShop(uiRoot, run, { onChange: saveRun, onLeave: (latest) => go(leaveNode(latest)) }));
   } else if (n.type === 'shrine') {
-    show(mountShrine(uiRoot, run, { onChoose: go, onLeave: () => go(leaveNode(run)) }));
+    show(() => mountShrine(uiRoot, run, { onChoose: go, onLeave: () => go(leaveNode(run)) }));
   } else if (n.type === 'recruit') {
-    show(
+    show(() =>
       mountRecruit(uiRoot, run, {
         onRecruit: (id) => {
           const r = recruit(run, id);
@@ -118,9 +146,9 @@ function go(run: RunState) {
 }
 
 function draft() {
-  show(
-    mountDraft(uiRoot, SQUAD_SIZE, (picks) => {
-      go(newRun({ seed: Date.now() >>> 0, draft: picks, base: BASE_STATS, squadSize: SQUAD_SIZE }));
+  show(() =>
+    mountDraft(uiRoot, SQUAD_SIZE, profile, (picks, relic) => {
+      go(newRun({ seed: Date.now() >>> 0, draft: picks, base: BASE_STATS, squadSize: SQUAD_SIZE, relic, shrinePool: shrinePool(profile) }));
     }),
   );
 }
@@ -128,10 +156,11 @@ function draft() {
 function title() {
   audio.music('exploration');
   const saved = loadRun();
-  show(
+  show(() =>
     mountTitle(uiRoot, saved, {
       onContinue: () => saved && go(saved),
       onNew: () => draft(),
+      onCodex: () => show(() => mountCodex(uiRoot, profile, title)),
     }),
   );
 }

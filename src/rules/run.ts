@@ -2,11 +2,12 @@ import { ACT_LEVEL, BOSS_LEVELS, ELITE_LEVELS, ENCOUNTERS, type Encounter } from
 import { ITEMS } from '../data/items';
 import { JOBS } from '../data/jobs';
 import { BATTLE_MAPS } from '../data/maps';
+import { RELICS } from '../data/relics';
 import { SHRINES, type ShrineChoice } from '../data/shrines';
 import { UNIT_NAMES } from '../data/units';
 import { newSquad, survivors, type BattleSetup } from './battle';
 import { canEquip, item } from './items';
-import { createUnit, effectiveStats, grantJp, levelUp, setLoadout, type Loadout } from './jobs';
+import { ability, createUnit, effectiveStats, grantJp, isMastered, job, learn, levelUp, setLoadout, type Loadout } from './jobs';
 import { createRng, type Rng } from './rng';
 import type { GameState, GearSlot, Stat, Unit } from './types';
 
@@ -14,7 +15,7 @@ import type { GameState, GearSlot, Stat, Unit } from './types';
 // in a boss. Pure state transitions; saving and screens live outside rules.
 
 /** Bump when RunState changes shape; older saves are discarded (§11). */
-export const RUN_VERSION = 2;
+export const RUN_VERSION = 3;
 export const ACTS = 3;
 /** Choice rows per act before the boss, so a run visits 3 x (3 + 1) = 12 nodes. */
 export const CHOICE_ROWS = 3;
@@ -54,6 +55,13 @@ export type RunState = {
   /** Unequipped gear item ids. */
   stash: string[];
   status: 'map' | 'node' | 'won' | 'lost';
+  /** Jobs any unit held this run, and jobs fully mastered (all abilities learned): feed meta progression. */
+  seenJobs: string[];
+  masteredJobs: string[];
+  /** Bosses beaten this run, by node id. */
+  bossesBeaten: string[];
+  /** Shrine events this run may draw (the profile unlocks more). */
+  shrinePool: string[];
   /** State for the node being visited. */
   camp?: { rested: boolean };
   recruits?: Unit[];
@@ -131,12 +139,31 @@ export type NewRun = {
   draft: { name: string; job: string; ownerId: string }[];
   base: Record<Stat, number>;
   squadSize: number;
+  /** A starting relic (src/data/relics.ts). */
+  relic?: string;
+  /** Shrine events allowed this run; default every event that needs no unlock. */
+  shrinePool?: string[];
 };
 
 export function newRun(opts: NewRun): RunState {
   const rng = createRng(opts.seed);
   const nodes = generateMap(rng);
-  const squad = newSquad(opts.draft, opts.base);
+  const relic = RELICS.find((r) => r.id === opts.relic);
+  let squad = newSquad(opts.draft, opts.base);
+  if (relic?.effect.type === 'level') squad = squad.map(levelUp);
+  if (relic?.effect.type === 'second-ability') {
+    squad = squad.map((u) => {
+      const second = job(u.job).abilities.map((a) => ability(a.abilityId)).filter((a) => a.kind === 'action')[1];
+      return second ? { ...u, learned: [...u.learned, second.id] } : u;
+    });
+  }
+  const inventory: Record<string, number> = { ...START_INVENTORY };
+  let stash: string[] = [];
+  if (relic?.effect.type === 'item') inventory[relic.effect.itemId] = (inventory[relic.effect.itemId] ?? 0) + relic.effect.count;
+  if (relic?.effect.type === 'gear') {
+    const tier1 = Object.values(ITEMS).filter((i) => i.kind === 'weapon' && i.tier === 1).map((i) => i.id);
+    stash = [pickOne(rng, tier1)];
+  }
   return {
     version: RUN_VERSION,
     seed: opts.seed,
@@ -149,10 +176,14 @@ export function newRun(opts: NewRun): RunState {
     battlesWon: 0,
     squadSize: opts.squadSize,
     nextUnitId: squad.length,
-    gold: START_GOLD,
-    inventory: { ...START_INVENTORY },
-    stash: [],
+    gold: START_GOLD + (relic?.effect.type === 'gold' ? relic.effect.amount : 0),
+    inventory,
+    stash,
     status: 'map',
+    seenJobs: [...new Set(squad.map((u) => u.job))],
+    masteredJobs: [],
+    bossesBeaten: [],
+    shrinePool: opts.shrinePool ?? SHRINES.filter((s) => !s.unlock).map((s) => s.id),
   };
 }
 
@@ -258,6 +289,7 @@ export function finishBattle(run: RunState, final: GameState): RunState {
   const kind = n.type === 'elite' || n.type === 'boss' ? n.type : 'battle';
   return {
     ...run,
+    bossesBeaten: n.type === 'boss' ? [...run.bossesBeaten, n.id] : run.bossesBeaten,
     squad,
     fallen: [...run.fallen, ...dead],
     battlesWon: run.battlesWon + 1,
@@ -299,7 +331,18 @@ export function changeLoadout(run: RunState, unitId: string, loadout: Loadout): 
   let next = replaceUnit(run, changed);
   const weapon = changed.gear?.weapon;
   if (weapon && !canEquip(changed, weapon, 'weapon')) next = unequip(next, unitId, 'weapon');
+  if (!next.seenJobs.includes(changed.job)) next = { ...next, seenJobs: [...next.seenJobs, changed.job] };
   return next;
+}
+
+/** Camp: spend a job's JP on one of its abilities. Mastering a job is recorded for meta progression. */
+export function learnAbility(run: RunState, unitId: string, jobId: string, abilityId: string): RunState | { error: string } {
+  const unit = run.squad.find((u) => u.id === unitId);
+  if (!unit) return { error: 'no such unit' };
+  const learned = learn(unit, jobId, abilityId);
+  if ('error' in learned) return learned;
+  const next = replaceUnit(run, learned);
+  return isMastered(learned, jobId) && !next.masteredJobs.includes(jobId) ? { ...next, masteredJobs: [...next.masteredJobs, jobId] } : next;
 }
 
 /** Camp: grant JP straight away (debug builds only). */
@@ -364,7 +407,8 @@ export function buy(run: RunState, itemId: string): RunState | { error: string }
 
 function pickShrine(run: RunState): RunState {
   const rng = createRng(run.rng);
-  return { ...run, rng: rng.state(), shrine: { eventId: pickOne(rng, SHRINES).id } };
+  const pool = SHRINES.filter((s) => run.shrinePool.includes(s.id));
+  return { ...run, rng: rng.state(), shrine: { eventId: pickOne(rng, pool.length ? pool : SHRINES).id } };
 }
 
 export function shrineEvent(run: RunState) {
@@ -449,5 +493,6 @@ export function recruit(run: RunState, unitId: string): RunState | { error: stri
   const pick = run.recruits?.find((u) => u.id === unitId);
   if (!pick) return { error: 'no such recruit' };
   if (run.squad.length >= run.squadSize) return { error: 'the squad is full' };
-  return { ...run, squad: [...run.squad, pick], recruits: [] };
+  const seenJobs = run.seenJobs.includes(pick.job) ? run.seenJobs : [...run.seenJobs, pick.job];
+  return { ...run, squad: [...run.squad, pick], recruits: [], seenJobs };
 }

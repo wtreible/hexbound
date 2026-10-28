@@ -6,7 +6,7 @@ import { planTurn } from '../src/rules/ai';
 import { newSquad, setupBattle } from '../src/rules/battle';
 import { applyIntent } from '../src/rules/reducer';
 import { createRng } from '../src/rules/rng';
-import { availableJobs, grantJp, setLoadout } from '../src/rules/jobs';
+import { availableJobs, grantJp, learn, setLoadout } from '../src/rules/jobs';
 import type { GameState, Unit } from '../src/rules/types';
 import { battle, flat, makeUnit } from './fixtures';
 
@@ -122,21 +122,24 @@ describe('M4 progression loop', () => {
     return state;
   }
 
-  it('earns JP in battle, masters two jobs and switches to their hybrid', () => {
+  it('earns JP in battle, learns abilities, unlocks an advanced job and fights with it', () => {
     const squad = newSquad(testSquad.map((m, i) => ({ ...m, ownerId: i % 2 === 0 ? 'p1' : 'p2' })), BASE_STATS);
     const after = play(squad, 7);
-    const earned = after.units.filter((u) => u.ownerId !== 'enemy').reduce((n, u) => n + (u.jp[u.job] ?? 0), 0);
+    const earned = after.units.filter((u) => u.ownerId !== 'enemy').reduce((n, u) => n + (u.jpTotal[u.job] ?? 0), 0);
     expect(earned).toBeGreaterThan(0);
 
-    // Debug JP stands in for several more battles, as in the M4 acceptance test.
-    let ada = squad[0]!;
-    ada = grantJp(ada, 300).unit;
-    const asAcolyte = setLoadout(ada, { job: 'acolyte' });
-    if ('error' in asAcolyte) throw new Error(asAcolyte.error);
-    ada = grantJp(asAcolyte, 300).unit;
+    // Granted JP stands in for several more battles: Squire Lv 3 and Acolyte Lv 2 open Paladin.
+    const ok = (u: Unit | { error: string }): Unit => {
+      if ('error' in u) throw new Error(u.error);
+      return u;
+    };
+    let ada = ok(learn(grantJp(squad[0]!, 300).unit, 'squire', 'counter'));
+    ada = ok(setLoadout(ada, { job: 'acolyte' }));
+    ada = ok(learn(grantJp(ada, 300).unit, 'acolyte', 'grace'));
     expect(availableJobs(ada).map((j) => j.id)).toContain('paladin');
-    const paladin = setLoadout(ada, { job: 'paladin', secondary: 'squire', passive: 'grace', ultimate: 'sanctuary' });
-    if ('error' in paladin) throw new Error(paladin.error);
+    ada = ok(setLoadout(ada, { job: 'paladin' }));
+    ada = ok(learn(grantJp(ada, 100).unit, 'paladin', 'holy-strike'));
+    const paladin = ok(setLoadout(ada, { job: 'paladin', secondary: 'squire', reaction: 'counter', support: 'grace' }));
 
     // The hybrid fights a full battle without any rejected intents.
     const final = play([paladin, ...squad.slice(1)], 8);

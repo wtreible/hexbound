@@ -170,7 +170,7 @@ describe('turn start and rounds (M4)', () => {
   });
 
   it('restores MP with Mana Well', () => {
-    const m = makeUnit('m', 'p1', 'mage', { x: 0, y: 0 }, { patch: { ct: 100, mp: 0, passive: 'mana-well' } });
+    const m = makeUnit('m', 'p1', 'mage', { x: 0, y: 0 }, { patch: { ct: 100, mp: 0, support: 'mana-well' } });
     expect(advance(idle([m, enemy()])).state.units[0]!.mp).toBe(3);
   });
 

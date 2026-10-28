@@ -1,6 +1,6 @@
 # 0009. Job progression: ranks, unlocks and the camp test harness
 
-- **Status:** Accepted
+- **Status:** Superseded by 0023
 - **Date:** 2026-10-27
 - **Milestone:** M4
 

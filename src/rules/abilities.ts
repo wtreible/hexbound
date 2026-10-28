@@ -1,9 +1,9 @@
 import { ABILITIES } from '../data/abilities';
 import { affects, areaTiles, damageAmount, healAmount, hitChance, isHostile } from './combat';
-import { facingOfStep, indexOf, manhattan, stepToward, tileAt } from './grid';
-import { ability as abilityById, effectiveStats, hasPassive, jobOf, passiveEffects } from './jobs';
+import { facingOfStep, indexOf, manhattan, neighbors, stepToward, tileAt } from './grid';
+import { ability as abilityById, createUnit, effectiveStats, enemyKnowledge, hasPassive, jobOf, passiveEffects } from './jobs';
 import type { Rng } from './rng';
-import type { AbilityDef, GameEvent, Grid, Hazard, Pos, Unit } from './types';
+import type { AbilityDef, GameEvent, GameState, Grid, Hazard, Pos, StatusId, Unit } from './types';
 import { isDowned, isEnemy, isStanding, sameSide, unitAt } from './units';
 
 // The ability effect pipeline (docs/DESIGN.md §8). Abilities are data; each
@@ -15,8 +15,12 @@ import { isDowned, isEnemy, isStanding, sameSide, unitAt } from './units';
 export const DOWNED_ROUNDS = 3;
 export const MAX_RESOLVE = 100;
 
-export type Board = { grid: Grid; units: readonly Unit[]; hazards: readonly Hazard[] };
-export type Resolution = { units: Unit[]; hazards: Hazard[]; events: GameEvent[] };
+export type PhaseHit = NonNullable<GameState['phaseHits']>[number];
+export type Board = { grid: Grid; units: readonly Unit[]; hazards: readonly Hazard[]; phaseHits?: readonly PhaseHit[] };
+export type Resolution = { units: Unit[]; hazards: Hazard[]; events: GameEvent[]; phaseHits?: PhaseHit[] };
+
+/** Statuses Dispel strips. */
+export const BUFFS: StatusId[] = ['guard', 'haste', 'veil', 'regen', 'protect', 'shell', 'focus', 'empower'];
 
 /** What a hostile trap or mine does to the unit that walks onto it. */
 export const TRAP_EFFECTS = {
@@ -55,6 +59,47 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
   const put = (u: Unit) => byId.set(u.id, u);
   const get = (id: string) => byId.get(id)!;
   const all = () => [...byId.values()];
+  const phaseHits: PhaseHit[] = [...(board.phaseHits ?? [])];
+  const summoned: Unit[] = [];
+  const combos = COMBOS;
+
+  /** Pincer: this attacker and an earlier attacker this phase from another player stand on opposite sides of the target. */
+  const flanked = (attacker: Unit, target: Unit): AbilityDef | undefined => {
+    const combo = combos.find((c) => c.trigger?.type === 'flank');
+    if (!combo || isEnemy(attacker)) return undefined;
+    const dx = attacker.pos.x - target.pos.x;
+    const dy = attacker.pos.y - target.pos.y;
+    const earlier = phaseHits.some(
+      (h) =>
+        h.targetId === target.id && h.attackerId !== attacker.id && h.ownerId !== attacker.ownerId && h.ownerId !== 'enemy' &&
+        (h.from.x - target.pos.x) * dx + (h.from.y - target.pos.y) * dy < 0,
+    );
+    return earlier ? combo : undefined;
+  };
+
+  /** Volley Mark: an ability with the trigger's tag aimed at a foe marked by another player. */
+  const markedShot = (a: AbilityDef, attacker: Unit, target: Unit): AbilityDef | undefined => {
+    const combo = combos.find((c) => c.trigger?.type === 'marked-shot');
+    const t = combo?.trigger;
+    if (!combo || !t || t.type !== 'marked-shot' || isEnemy(attacker) || !a.tags.includes(t.tag)) return undefined;
+    const mark = target.statuses.find((s) => s.id === t.status);
+    return mark && mark.by && mark.by !== 'enemy' && mark.by !== attacker.ownerId ? combo : undefined;
+  };
+
+  /** Aegis Link: a heal with the trigger's tag next to another player's ally with Cover heals that ally too. */
+  const aegisLink = (a: AbilityDef, healer: Unit, healed: Unit, amount: number) => {
+    const combo = combos.find((c) => c.trigger?.type === 'heal-guard');
+    const t = combo?.trigger;
+    if (!combo || !t || t.type !== 'heal-guard' || isEnemy(healer) || !a.tags.includes(t.tag)) return;
+    const guard = all().find(
+      (u) => u.id !== healed.id && isStanding(u) && sameSide(u, healed) && u.ownerId !== healer.ownerId && manhattan(u.pos, healed.pos) === 1 && hasPassive(u, 'cover'),
+    );
+    if (!guard) return;
+    const gain = Math.min(amount, effectiveStats(guard).hp - guard.hp);
+    put({ ...guard, hp: guard.hp + gain });
+    events.push({ type: 'combo', comboId: combo.id, pos: guard.pos });
+    events.push({ type: 'healed', unitId: guard.id, amount: gain });
+  };
 
   if (!opts.paid) payAndFace(byId, casterId, ability, target, events);
   const origin = opts.from ?? get(casterId).pos;
@@ -70,7 +115,11 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
       put({ ...v, hp: 0, downedRounds: DOWNED_ROUNDS, statuses: [], resolve });
       events.push({ type: 'downed', unitId: victimId });
     } else {
-      put({ ...v, hp: v.hp - dealt, resolve });
+      // Reactions like Auto-Potion heal back a share of the hit.
+      let healBack = 0;
+      for (const p of passiveEffects(v)) if (p.type === 'reaction-heal') healBack += Math.round(dealt * p.pct);
+      put({ ...v, hp: v.hp - dealt + healBack, resolve });
+      if (healBack > 0) events.push({ type: 'healed', unitId: victimId, amount: healBack });
     }
     if (attackerId === victimId) return;
     const a = get(attackerId);
@@ -109,7 +158,10 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
     const damaged: string[] = [];
     for (const initial of targets) {
       const id = initial.id;
-      if (isHostile(a) && isStanding(initial) && rng.next() >= hitChance(a, get(sourceId), initial)) {
+      // Volley Mark: a shot at a foe another player marked can't miss.
+      const marked = markedShot(a, get(sourceId), initial);
+      if (marked) events.push({ type: 'combo', comboId: marked.id, pos: initial.pos });
+      if (!marked && isHostile(a) && isStanding(initial) && rng.next() >= hitChance(a, get(sourceId), initial)) {
         events.push({ type: 'missed', unitId: id });
         continue;
       }
@@ -117,22 +169,30 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
         const u = get(id);
         if (u.dead) break;
         switch (effect.type) {
-          case 'damage':
+          case 'damage': {
             if (!isStanding(u)) break;
-            damage(sourceId, id, damageAmount(grid, effect, get(sourceId), u));
+            const attacker = get(sourceId);
+            // Pincer: hit from the side opposite another player's hit this phase, and it counts as from behind.
+            const pincer = flanked(attacker, u);
+            if (pincer) events.push({ type: 'combo', comboId: pincer.id, pos: u.pos });
+            const e = pincer ? { ...effect, forceSide: 'back' as const } : effect;
+            damage(sourceId, id, damageAmount(grid, e, attacker, u, a.tags));
+            phaseHits.push({ attackerId: sourceId, ownerId: attacker.ownerId, targetId: id, from: attacker.pos });
             damaged.push(id);
             break;
+          }
           case 'heal': {
             if (!isStanding(u)) break;
             const amount = Math.min(healAmount(effect, get(sourceId), u), effectiveStats(u).hp - u.hp);
             put({ ...u, hp: u.hp + amount });
             events.push({ type: 'healed', unitId: id, amount });
+            aegisLink(a, get(sourceId), get(id), healAmount(effect, get(sourceId), u));
             break;
           }
           case 'status': {
             if (!isStanding(u) || rng.next() >= effect.chance) break;
             const statuses = u.statuses.filter((s) => s.id !== effect.status);
-            put({ ...u, statuses: [...statuses, { id: effect.status, turns: effect.duration }] });
+            put({ ...u, statuses: [...statuses, { id: effect.status, turns: effect.duration, by: get(sourceId).ownerId }] });
             events.push({ type: 'status', unitId: id, status: effect.status, added: true });
             break;
           }
@@ -181,10 +241,34 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
             put({ ...u, ct: Math.max(0, u.ct + effect.delta) });
             events.push({ type: 'ct', unitId: id, delta: effect.delta });
             break;
+          case 'dispel': {
+            if (!isStanding(u)) break;
+            const removed = u.statuses.filter((s) => BUFFS.includes(s.id));
+            for (const s of removed) events.push({ type: 'status', unitId: id, status: s.id, added: false });
+            put({ ...u, statuses: u.statuses.filter((s) => !BUFFS.includes(s.id)) });
+            break;
+          }
           case 'hazard':
+          case 'summon':
             break; // placed per tile below
         }
       }
+    }
+
+    // Summons appear on the aimed tile, or the nearest empty tile beside it.
+    for (const effect of a.effects) {
+      if (effect.type !== 'summon') continue;
+      const spot = [aim, ...neighbors(grid, aim)].find((p) => tileAt(grid, p)?.walkable && !unitAt(all(), p.x, p.y));
+      if (!spot) continue;
+      const src = get(sourceId);
+      const id = `${sourceId}-s${summoned.length + board.units.filter((u) => u.id.startsWith(`${sourceId}-s`)).length}`;
+      const unit = {
+        ...createUnit({ id, ownerId: src.ownerId, name: effect.name, job: effect.job, base: src.base, pos: spot, facing: src.facing, level: src.level }),
+        ...enemyKnowledge(effect.job, src.level),
+      };
+      summoned.push(unit);
+      put(unit);
+      events.push({ type: 'summoned', unitId: id });
     }
 
     // Hazards go on tiles, not units, and need no hit roll. One hazard per tile: a new one replaces the old.
@@ -218,7 +302,7 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
   }
 
   // Cross-player combos: fire on oil laid by another player's unit explodes (Ignite).
-  for (const combo of COMBOS) {
+  for (const combo of combos) {
     const t = combo.trigger;
     if (!t || t.type !== 'element-on-hazard') continue;
     if (!ability.effects.some((e) => e.type === 'damage' && e.element === t.element)) continue;
@@ -230,7 +314,7 @@ export function resolveAbility(board: Board, casterId: string, ability: AbilityD
     run(combo, casterId, fuel.pos, fuel.pos);
   }
 
-  return { units: board.units.map((u) => get(u.id)), hazards: [...hazards.values()], events };
+  return { units: [...board.units.map((u) => get(u.id)), ...summoned.map((u) => get(u.id))], hazards: [...hazards.values()], events, phaseHits };
 }
 
 /**

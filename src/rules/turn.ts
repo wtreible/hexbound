@@ -20,7 +20,7 @@ export const READY_CT = 100;
 export const CT_CARRY = { both: 0, one: 60, none: 80 } as const;
 
 /** JP for every surviving player unit when the player side wins (docs/DESIGN.md §6.2). */
-export const CLEAR_BONUS_JP = 20;
+export const CLEAR_BONUS_JP = 30;
 
 /** Turn-start damage (and Regen healing) as a share of max HP. */
 export const POISON_PCT = 0.1;
@@ -41,7 +41,7 @@ export function checkVictory(step: Step): Step {
   const units = step.state.units.map((u) => {
     if (w !== 'player' || isEnemy(u) || isNpc(u) || u.dead) return u;
     const gain = grantJp(u, CLEAR_BONUS_JP);
-    events.push({ type: 'jp', unitId: u.id, job: u.job, amount: CLEAR_BONUS_JP, rank: gain.rank, rankUp: gain.rankUp });
+    events.push({ type: 'jp', unitId: u.id, job: u.job, amount: gain.amount, level: gain.level, levelUp: gain.levelUp });
     return gain.unit;
   });
   return { state: { ...step.state, units, turn: { phase: 'over', winner: w } }, events };
@@ -91,7 +91,7 @@ export function advance(state: GameState, rng?: Rng): Step {
       if (!standing.length) continue;
       events.push({ type: 'phase', phase, unitIds: standing.map((u) => u.id) });
       const active: ActiveUnit[] = standing.map((u) => ({ unitId: u.id, moved: false, acted: false }));
-      return { state: { ...current(), turn: { phase, active } }, events };
+      return { state: { ...current(), phaseHits: [], turn: { phase, active } }, events };
     }
 
     units = units.map((u) => (u.dead || u.escaped ? u : { ...u, ct: u.ct + effectiveStats(u).spd }));
@@ -119,7 +119,12 @@ function resolveCast(state: GameState, cast: Cast, events: GameEvent[], rng?: Rn
   }
   if (!rng) throw new Error('resolving a cast needs an rng');
   events.push({ type: 'cast-resolved', unitId: cast.casterId, abilityId: cast.abilityId });
-  const r = resolveAbility(state, cast.casterId, ability(cast.abilityId), cast.target, rng, { from: cast.from, paid: true });
+  // A Jump lands: the caster is back on the board.
+  const landed = caster.statuses.some((s) => s.id === 'airborne')
+    ? state.units.map((u) => (u.id === caster.id ? { ...u, statuses: u.statuses.filter((s) => s.id !== 'airborne') } : u))
+    : state.units;
+  if (landed !== state.units) events.push({ type: 'status', unitId: caster.id, status: 'airborne', added: false });
+  const r = resolveAbility({ ...state, units: landed }, cast.casterId, ability(cast.abilityId), cast.target, rng, { from: cast.from, paid: true });
   events.push(...r.events);
   return { units: r.units, hazards: r.hazards };
 }
@@ -134,6 +139,11 @@ function turnStart(unit: Unit, hazard: Hazard | undefined, events: GameEvent[]):
   if (u.statuses.some((s) => s.id === 'poison')) u = hurt(u, Math.round(max.hp * POISON_PCT), 'poison', events);
   if (isStanding(u) && hazard?.id === 'fire') u = hurt(u, Math.round(max.hp * FIRE_PCT), 'fire', events);
   if (!isStanding(u)) return u;
+  // A friendly rune empowers whoever starts their turn on it.
+  if (hazard?.id === 'rune' && (hazard.ownerId === 'enemy') === isEnemy(u)) {
+    u = { ...u, statuses: [...u.statuses.filter((s) => s.id !== 'empower'), { id: 'empower', turns: 2 }] };
+    events.push({ type: 'status', unitId: u.id, status: 'empower', added: true });
+  }
   if (u.statuses.some((s) => s.id === 'regen') && u.hp < max.hp) {
     const amount = Math.min(max.hp - u.hp, Math.max(1, Math.round(max.hp * REGEN_PCT)));
     u = { ...u, hp: u.hp + amount };

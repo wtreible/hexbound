@@ -24,12 +24,13 @@ const HIGHLIGHT_COLORS: Record<HighlightKind, number> = {
   cast: 0x9a6ad0,
 };
 
-// Hazard markers: oil and fire cover the tile; traps and mines are small discs.
+// Hazard markers: oil, fire and runes cover the tile; traps and mines are small discs.
 const HAZARD_LOOK: Record<HazardId, { color: number; opacity: number; disc: boolean }> = {
   oil: { color: 0x1c1712, opacity: 0.75, disc: false },
   fire: { color: 0xff6a1f, opacity: 0.7, disc: false },
   trap: { color: 0xb8b0a0, opacity: 0.95, disc: true },
   mine: { color: 0xc0392b, opacity: 0.95, disc: true },
+  rune: { color: 0x6ab8ff, opacity: 0.55, disc: false },
 };
 
 export function tileTop(grid: Grid, p: Pos): number {

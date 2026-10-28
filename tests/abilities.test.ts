@@ -67,7 +67,7 @@ describe('resolveAbility', () => {
     const b = makeUnit('b', 'p1', 'archer', { x: 2, y: 4 });
     const a = makeUnit('a', 'enemy', 'squire', { x: 2, y: 1 });
     const pinned = resolveAbility({ grid: g, units: [b, a], hazards: [] }, 'b', ABILITIES['pin-shot']!, a.pos, fixed(0));
-    expect(byId(pinned.units, 'a').statuses).toEqual([{ id: 'pinned', turns: 2 }]);
+    expect(byId(pinned.units, 'a').statuses).toEqual([{ id: 'pinned', turns: 2, by: 'p1' }]);
     // 0.81 hits a side/back shot but fails the 80% status roll.
     const side = makeUnit('a', 'enemy', 'squire', { x: 2, y: 1 }, { facing: 1 });
     const resisted = resolveAbility({ grid: g, units: [b, side], hazards: [] }, 'b', ABILITIES['pin-shot']!, a.pos, fixed(0.81));
@@ -158,7 +158,7 @@ describe('M4 effects and reactions', () => {
   });
 
   it('redirects single-target attacks to an adjacent ally with Cover', () => {
-    const pal = makeUnit('p', 'p1', 'paladin', { x: 3, y: 2 }, { patch: { passive: 'cover' } });
+    const pal = makeUnit('p', 'p1', 'paladin', { x: 3, y: 2 }, { patch: { reaction: 'cover' } });
     const archer = makeUnit('a', 'p1', 'archer', { x: 2, y: 2 });
     const foe = makeUnit('f', 'enemy', 'squire', { x: 2, y: 3 });
     const r = resolveAbility(board([pal, archer, foe]), 'f', ABILITIES.strike!, archer.pos, fixed(0));
@@ -168,7 +168,7 @@ describe('M4 effects and reactions', () => {
   });
 
   it('strikes back in melee with Counter', () => {
-    const sq = makeUnit('s', 'p1', 'squire', { x: 2, y: 2 }, { patch: { passive: 'counter' } });
+    const sq = makeUnit('s', 'p1', 'squire', { x: 2, y: 2 }, { patch: { reaction: 'counter' } });
     const foe = makeUnit('f', 'enemy', 'archer', { x: 2, y: 3 });
     const r = resolveAbility(board([sq, foe]), 'f', ABILITIES.staff!, sq.pos, fixed(0));
     expect(r.events).toContainEqual({ type: 'countered', unitId: 's', targetId: 'f' });
@@ -180,7 +180,7 @@ describe('M4 effects and reactions', () => {
   });
 
   it('restores MP on hit with Arcane Edge', () => {
-    const sb = makeUnit('b', 'p1', 'spellblade', { x: 2, y: 3 }, { patch: { passive: 'arcane-edge', mp: 0 } });
+    const sb = makeUnit('b', 'p1', 'spellblade', { x: 2, y: 3 }, { patch: { support: 'arcane-edge', mp: 0 } });
     const foe = makeUnit('f', 'enemy', 'archer', { x: 2, y: 2 });
     expect(byId(resolveAbility(board([sb, foe]), 'b', ABILITIES.strike!, foe.pos, fixed(0)).units, 'b').mp).toBe(2);
   });

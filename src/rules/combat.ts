@@ -1,6 +1,6 @@
 import { FACING_STEPS, inBounds, manhattan, stepToward, tileAt } from './grid';
-import { effectiveStats, healMultiplier, rangeBonus } from './jobs';
-import type { AbilityDef, Effect, Grid, Pos, Unit } from './types';
+import { effectiveStats, healMultiplier, passiveEffects, rangeBonus } from './jobs';
+import type { AbilityDef, Effect, Grid, Pos, StatusId, Unit } from './types';
 import { isDowned, isEnemy, isStanding, sameSide, unitAt } from './units';
 
 // Combat math (docs/DESIGN.md §5.3). Starting values; tune later.
@@ -9,6 +9,10 @@ export const HEIGHT_DAMAGE_CAP = 0.3;
 export const PHYSICAL_BASE_HIT = 90;
 export const MIN_HIT = 5;
 export const BLIND_PENALTY = 40;
+export const FOCUS_BONUS = 20;
+export const MARK_BONUS = 30;
+/** Weaken/Empower change damage dealt; Protect/Shell cut physical/magic damage taken. */
+export const STATUS_DAMAGE = { weaken: -0.25, empower: 0.25, protect: -0.25, shell: -0.25 } as const;
 /** Enemies deal half damage (decision 0020). */
 export const ENEMY_DAMAGE_SCALE = 0.5;
 
@@ -109,8 +113,11 @@ export function isHostile(ability: AbilityDef): boolean {
   );
 }
 
-/** Whether a unit in the area is affected, given the ability's `affects` filter. */
+export const hasStatus = (u: Unit, id: StatusId): boolean => u.statuses.some((s) => s.id === id);
+
+/** Whether a unit in the area is affected, given the ability's `affects` filter. Airborne units are out of reach. */
 export function affects(ability: AbilityDef, caster: Unit, unit: Unit): boolean {
+  if (hasStatus(unit, 'airborne') && unit.id !== caster.id) return false;
   const filter = ability.affects ?? 'all';
   return filter === 'all' || (filter === 'allies') === sameSide(caster, unit);
 }
@@ -125,17 +132,32 @@ export function hitChance(ability: AbilityDef, attacker: Unit, target: Unit): nu
   if (!isHostile(ability) || ability.tags.includes('magic')) return 1;
   const side = sideOf(ability, attacker.pos, target);
   const evade = effectiveStats(target).evade;
-  const blind = attacker.statuses.some((s) => s.id === 'blind') ? BLIND_PENALTY : 0;
-  const pct = PHYSICAL_BASE_HIT + FACING_BONUS[side].hit - evade - blind;
+  const blind = hasStatus(attacker, 'blind') ? BLIND_PENALTY : 0;
+  const focus = hasStatus(attacker, 'focus') ? FOCUS_BONUS : 0;
+  const mark = hasStatus(target, 'mark') ? MARK_BONUS : 0;
+  const pct = PHYSICAL_BASE_HIT + FACING_BONUS[side].hit - evade - blind + focus + mark;
   return Math.min(100, Math.max(MIN_HIT, pct)) / 100;
 }
 
 /** damage = max(1, round((stat * power - defence) * modifiers)); enemies' modifiers include ENEMY_DAMAGE_SCALE. */
+/** Multiplier from statuses on both sides and the attacker's damage-boost passives. */
+function damageMods(effect: Extract<Effect, { type: 'damage' }>, attacker: Unit, target: Unit, tags: readonly string[]): number {
+  let m = 1;
+  if (hasStatus(attacker, 'weaken')) m += STATUS_DAMAGE.weaken;
+  if (hasStatus(attacker, 'empower')) m += STATUS_DAMAGE.empower;
+  if (effect.stat === 'atk' && hasStatus(target, 'protect')) m += STATUS_DAMAGE.protect;
+  if (effect.stat === 'mag' && hasStatus(target, 'shell')) m += STATUS_DAMAGE.shell;
+  for (const p of passiveEffects(attacker)) if (p.type === 'damage-boost' && (!p.tag || tags.includes(p.tag))) m += p.pct;
+  return Math.max(0.1, m);
+}
+
 export function damageAmount(
   grid: Grid,
   effect: Extract<Effect, { type: 'damage' }>,
   attacker: Unit,
   target: Unit,
+  /** The ability's tags, for tag-specific damage boosts. */
+  tags: readonly string[] = [],
 ): number {
   const a = effectiveStats(attacker);
   const t = effectiveStats(target);
@@ -143,7 +165,7 @@ export function damageAmount(
   const height = Math.min(HEIGHT_DAMAGE_CAP, Math.max(0, heightAbove(grid, attacker.pos, target.pos)) * HEIGHT_DAMAGE_PER_TIER);
   const side = effect.forceSide ?? attackSide(attacker.pos, target);
   const facing = FACING_BONUS[side].damage * (effect.facingMultiplier ?? 1);
-  const raw = (a[effect.stat] * effect.power - defence) * (1 + height) * (1 + facing) * damageScale(attacker);
+  const raw = (a[effect.stat] * effect.power - defence) * (1 + height) * (1 + facing) * damageScale(attacker) * damageMods(effect, attacker, target, tags);
   return Math.max(1, Math.round(raw));
 }
 
@@ -177,7 +199,7 @@ export function previewAct(grid: Grid, units: readonly Unit[], caster: Unit, abi
     let heal = 0;
     let revive = false;
     for (const e of ability.effects) {
-      if (e.type === 'damage' && isStanding(unit)) damage += damageAmount(grid, e, caster, unit);
+      if (e.type === 'damage' && isStanding(unit)) damage += damageAmount(grid, e, caster, unit, ability.tags);
       if (e.type === 'heal' && isStanding(unit)) heal += healAmount(e, caster, unit);
       if (e.type === 'revive' && isDowned(unit)) revive = true;
     }

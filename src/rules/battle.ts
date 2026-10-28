@@ -1,5 +1,5 @@
 import { facingOfStep, gridFromRows, stepToward } from './grid';
-import { createUnit, effectiveStats } from './jobs';
+import { createUnit, effectiveStats, enemyKnowledge } from './jobs';
 import { HOLD_ROUNDS } from './objectives';
 import { advance, type Step } from './turn';
 import type { Facing, Objective, Pos, Stat, Unit } from './types';
@@ -47,7 +47,7 @@ export function readyForBattle(unit: Unit, pos: Pos, facing: Facing): Unit {
 export const ENEMY_HP_SCALE = 0.5;
 
 function createEnemy(spec: EnemySpec, i: number, base: Record<Stat, number>, pos: Pos, facing: Facing): Unit {
-  const u = createUnit({ id: `e${i}`, ownerId: 'enemy', name: spec.name, job: spec.job, base, pos, facing, level: spec.level });
+  const u = { ...createUnit({ id: `e${i}`, ownerId: 'enemy', name: spec.name, job: spec.job, base, pos, facing, level: spec.level }), ...enemyKnowledge(spec.job, spec.level ?? 1) };
   const scaled = { ...u.base, hp: u.base.hp * ENEMY_HP_SCALE };
   for (const [stat, m] of Object.entries(spec.scale ?? {})) scaled[stat as Stat] *= m;
   const next = { ...u, base: scaled };

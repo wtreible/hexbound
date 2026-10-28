@@ -23,6 +23,8 @@ export type SceneHandle = {
   lookAt(target: THREE.Vector3): void;
   /** Pan smoothly to look at a point. */
   focus(target: THREE.Vector3): void;
+  /** Slowly circle the target (radians per second); 0 stops and settles back to the 90° steps. */
+  orbit(rate: number): void;
 };
 
 type Tween = { from: number; to: number; start: number };
@@ -60,8 +62,11 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
   let zoomIndex = 0;
   let zoom: Tween = { from: 1, to: 1, start: 0 };
 
+  let orbitRate = 0;
+  let orbitAngle = 0;
+
   const placeCamera = (now: number) => {
-    const a = tweenValue(azimuth, now);
+    const a = tweenValue(azimuth, now) + orbitAngle;
     camera.position.set(
       target.x + DISTANCE * Math.cos(ELEVATION) * Math.sin(a),
       target.y + DISTANCE * Math.sin(ELEVATION),
@@ -115,6 +120,10 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
     focus(v) {
       goal.copy(v);
     },
+    orbit(rate) {
+      orbitRate = rate;
+      if (!rate) orbitAngle = 0;
+    },
   };
 
   const timer = new THREE.Timer();
@@ -122,6 +131,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
     timer.update(time);
     const dt = timer.getDelta();
     target.lerp(goal, 1 - Math.exp(-dt * PAN_RATE));
+    orbitAngle += orbitRate * dt;
     placeCamera(performance.now());
     handle.onFrame?.(dt);
     renderer.render(scene, camera);

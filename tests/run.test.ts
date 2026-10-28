@@ -19,9 +19,13 @@ import {
   newRun,
   node,
   recruit,
+  learnAbility,
   rest,
+  START_GOLD,
   type RunState,
 } from '../src/rules/run';
+import { JOBS } from '../src/data/jobs';
+import { SHRINES } from '../src/data/shrines';
 import type { GameState } from '../src/rules/types';
 
 const draft = [
@@ -182,6 +186,36 @@ describe('camp and recruits', () => {
     expect(joined.squad).toHaveLength(4);
     expect(joined.recruits).toEqual([]);
     expect(new Set(joined.squad.map((u) => u.id)).size).toBe(4);
+  });
+});
+
+describe('learning at camp and meta progress', () => {
+  it('spends JP on an ability and records a job once every ability is learned', () => {
+    let run = start();
+    const ada = run.squad[0]!;
+    run = { ...run, squad: run.squad.map((u) => (u.id === ada.id ? { ...u, jp: { squire: 5000 }, jpTotal: { squire: 5000 } } : u)) };
+    run = ok(learnAbility(run, ada.id, 'squire', 'throw-stone'));
+    expect(run.squad[0]!.learned).toContain('throw-stone');
+    expect(run.masteredJobs).toEqual([]);
+    for (const { abilityId } of JOBS.squire!.abilities) if (!run.squad[0]!.learned.includes(abilityId)) run = ok(learnAbility(run, ada.id, 'squire', abilityId));
+    expect(run.masteredJobs).toEqual(['squire']);
+    expect(learnAbility(run, ada.id, 'squire', 'throw-stone')).toHaveProperty('error');
+  });
+
+  it('applies the starting relic', () => {
+    const relic = (id: string) => newRun({ seed: 1, draft, base: BASE_STATS, squadSize: 4, relic: id });
+    expect(relic('coin-purse').gold).toBe(START_GOLD + 60);
+    expect(relic('travelers-pack').inventory.potion).toBe((start().inventory.potion ?? 0) + 2);
+    expect(relic('phoenix-charm').inventory['phoenix-feather']).toBe((start().inventory['phoenix-feather'] ?? 0) + 1);
+    expect(relic('whetstone').stash).toHaveLength(1);
+    expect(relic('veterans-banner').squad.every((u) => u.level === 2)).toBe(true);
+    expect(relic('scholars-tome').squad.every((u) => u.learned.length === 2)).toBe(true);
+  });
+
+  it('only draws shrine events from the run\'s pool', () => {
+    const run = start();
+    expect(run.shrinePool).toEqual(SHRINES.filter((s) => !s.unlock).map((s) => s.id));
+    expect(run.seenJobs.sort()).toEqual(['acolyte', 'archer', 'mage', 'squire']);
   });
 });
 

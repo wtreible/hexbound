@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { faceToward, planTurn } from '../rules/ai';
+import { faceToward, planTurn, presetFor } from '../rules/ai';
 import { areaTiles, previewAct, targetTiles, type TargetPreview } from '../rules/combat';
 import { indexOf, neighbors, pathTo, posOf, reachable, tileAt, type Reach } from '../rules/grid';
 import { item } from '../rules/items';
@@ -17,7 +17,7 @@ import { createUnits } from '../render/units';
 import type { ClipKey, ModelLibrary } from '../render/models';
 import type { Portraits } from '../render/portraits';
 import { audio, type Sfx } from '../audio';
-import { ACTION_KEYS, listActions, mountActionMenu, rankLine, sameAction, type ActionKey } from './actionMenu';
+import { ACTION_KEYS, listActions, mountActionMenu, jobLine, sameAction, type ActionKey } from './actionMenu';
 import { mountTimeline } from './timeline';
 
 // Solo battle. In the player phase, pick an active unit (gold ring),
@@ -53,14 +53,14 @@ export type BattleOptions = {
   portraits?: Portraits | null;
 };
 
-/** Which body animation and sound an ability plays. */
-function actionLook(a: AbilityDef): { clip: ClipKey; sfx: Sfx } {
+/** Which body animation and sounds an ability plays: when used, and when it lands. */
+function actionLook(a: AbilityDef): { clip: ClipKey; sfx: Sfx; impact: Sfx } {
   const damages = a.effects.some((e) => e.type === 'damage');
-  if (a.tags.includes('item')) return { clip: 'item', sfx: 'page' };
-  if (a.tags.includes('bow')) return { clip: 'shoot', sfx: 'draw' };
-  if (a.tags.includes('magic')) return damages ? { clip: 'cast', sfx: 'magic' } : { clip: 'support', sfx: 'heal' };
-  if (a.tags.includes('melee') || a.tags.includes('physical')) return { clip: 'melee', sfx: 'swing' };
-  return { clip: 'item', sfx: 'whoosh' };
+  if (a.tags.includes('item')) return { clip: 'item', sfx: 'page', impact: 'hit' };
+  if (a.tags.includes('bow')) return { clip: 'shoot', sfx: 'draw', impact: 'hit' };
+  if (a.tags.includes('magic')) return damages ? { clip: 'cast', sfx: 'cast', impact: 'spellHit' } : { clip: 'support', sfx: 'cast', impact: 'spellHit' };
+  if (a.tags.includes('melee') || a.tags.includes('physical')) return { clip: 'melee', sfx: 'swing', impact: 'hit' };
+  return { clip: 'item', sfx: 'whoosh', impact: 'hit' };
 }
 
 /**
@@ -213,7 +213,7 @@ export function mountBattle(
         const statuses = u.statuses.map((x) => STATUS_NAMES[x.id]).join(', ');
         const downed = u.downedRounds !== undefined ? ` · DOWNED (${roundsText(u.downedRounds)} to revive)` : '';
         const owner = isEnemy(u) ? ' (enemy)' : ` (${u.ownerId})`;
-        lines.push({ text: `${u.name} · ${jobOf(u).name}${owner}${downed}${isEnemy(u) ? '' : ` · ${rankLine(u, u.job)}`}` });
+        lines.push({ text: `${u.name} · ${jobOf(u).name}${owner}${downed}${isEnemy(u) ? '' : ` · ${jobLine(u, u.job)}`}` });
         lines.push({ text: `HP ${u.hp}/${s.hp} · MP ${u.mp}/${s.mp} · Resolve ${u.resolve} · CT ${u.ct} · Move ${s.move} · Jump ${s.jump}${statuses ? ` · ${statuses}` : ''}` });
       }
     }
@@ -262,6 +262,8 @@ export function mountBattle(
 
   const play = async (events: GameEvent[]) => {
     let impacts = false;
+    /** The impact sound of the ability being resolved. */
+    let impact: Sfx = 'hit';
     for (const e of events) {
       switch (e.type) {
         case 'moved':
@@ -272,6 +274,7 @@ export function mountBattle(
           break;
         case 'acted': {
           const look = actionLook(ability(e.abilityId));
+          impact = look.impact;
           popAt(e.unitId, ability(e.abilityId).name, 'info');
           void units.act(e.unitId, look.clip);
           audio.play(look.sfx);
@@ -282,7 +285,8 @@ export function mountBattle(
         case 'damaged':
           popAt(e.unitId, String(e.amount), 'damage');
           void units.act(e.unitId, 'hit');
-          audio.play('hit');
+          // Spells land with a magical burst, not a weapon on armour.
+          audio.play(e.source ? 'hit' : impact);
           impacts = true;
           break;
         case 'missed':
@@ -361,7 +365,7 @@ export function mountBattle(
           await sleep(300);
           break;
         case 'jp':
-          popAt(e.unitId, `+${e.amount} JP${e.rankUp ? (e.rank >= 3 ? ' · Mastered!' : ` · Rank ${e.rank}!`) : ''}`, 'info');
+          popAt(e.unitId, `+${e.amount} JP${e.levelUp ? ` · Job Lv ${e.level}!` : ''}`, 'info');
           break;
         case 'phase':
           if (impacts) await sleep(500);
@@ -415,7 +419,7 @@ export function mountBattle(
   };
 
   const aiPlan = (u: Unit) => {
-    if (isEnemy(u)) return planTurn(state, u.id, 'berserker');
+    if (isEnemy(u)) return planTurn(state, u.id, presetFor(u));
     if (isNpc(u)) return planTurn(state, u.id, 'escort', state.objective.type === 'escort' ? state.objective.exits : []);
     return planTurn(state, u.id, 'cautious');
   };

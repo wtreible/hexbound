@@ -6,6 +6,7 @@ export const HAZARD_NAMES: Record<HazardId, string> = {
   fire: 'Fire',
   trap: 'Trap',
   mine: 'Mine',
+  rune: 'Rune',
 };
 
 export const STATUS_NAMES: Record<StatusId, string> = {
@@ -18,4 +19,11 @@ export const STATUS_NAMES: Record<StatusId, string> = {
   blind: 'Blind',
   silence: 'Silence',
   regen: 'Regen',
+  airborne: 'Airborne',
+  mark: 'Marked',
+  weaken: 'Weaken',
+  protect: 'Protect',
+  shell: 'Shell',
+  focus: 'Focus',
+  empower: 'Empower',
 };

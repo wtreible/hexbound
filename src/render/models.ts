@@ -64,7 +64,7 @@ export async function loadModels(base: string): Promise<ModelLibrary> {
       const gltf = bodies.get(look.body);
       if (!gltf) return null;
       const model = cloneSkinned(gltf.scene);
-      model.scale.setScalar(manifest.scale);
+      model.scale.setScalar(manifest.scale * (look.scale ?? 1));
 
       const tint = look.tint !== undefined ? new THREE.Color(look.tint) : null;
       model.traverse((o) => {

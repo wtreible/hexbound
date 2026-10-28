@@ -1,5 +1,5 @@
 import { itemAbilities } from '../rules/items';
-import { abilityEntries, canAfford, effectiveStats, job, jobOf, RANK_JP, rankOf, type AbilitySource } from '../rules/jobs';
+import { abilityEntries, canUse, effectiveStats, job, jobLevel, jobOf, JOB_LEVEL_JP, MAX_JOB_LEVEL, type AbilitySource } from '../rules/jobs';
 import type { ActiveUnit, Unit } from '../rules/types';
 import type { Portraits } from '../render/portraits';
 import { lookFor, OWNER_COLORS } from '../render/units';
@@ -7,7 +7,7 @@ import { STATUS_NAMES } from './names';
 
 // Bottom-centre command bar for the selected active unit: avatar on the left,
 // numbered actions in the middle, stats on the right. Actions the unit can't
-// take right now (already moved or acted, locked by rank, too expensive) are
+// take right now (already moved or acted, silenced, too expensive) are
 // greyed out. Keys 1-9, then 0, - and = pick actions by position.
 
 export const ACTION_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
@@ -28,12 +28,12 @@ export function listActions(unit: Unit, entry: ActiveUnit, inventory: Record<str
     { key: 'move', label: 'Move', detail: '', disabled: entry.moved, section: 'move' },
     ...abilityEntries(unit).map((e): Action => {
       const mp = e.ability.cost?.mp ?? 0;
-      const detail = e.locked ? `Rank ${e.rank}` : e.ability.cost?.resolve ? 'Resolve' : mp ? `${mp} MP` : '';
+      const detail = e.ability.cost?.resolve ? 'Resolve' : mp ? `${mp} MP` : '';
       return {
         key: { abilityId: e.ability.id },
         label: e.ability.name,
         detail,
-        disabled: e.locked || entry.acted || !canAfford(unit, e.ability),
+        disabled: entry.acted || !canUse(unit, e.ability),
         section: e.source,
       };
     }),
@@ -85,12 +85,13 @@ const el = (tag: string, className: string, text?: string) => {
   return e;
 };
 
-/** "Rank 1 · 75/150 JP", or "Mastered". */
-export function rankLine(unit: Unit, jobId: string): string {
-  const rank = rankOf(unit, jobId);
+/** "Job Lv 2 · 40 JP (150 to next)", with the unspent JP for that job. */
+export function jobLine(unit: Unit, jobId: string): string {
+  const level = jobLevel(unit, jobId);
   const jp = unit.jp[jobId] ?? 0;
-  const next = RANK_JP[rank];
-  return next === undefined ? `Mastered · ${jp} JP` : `Rank ${rank} · ${jp}/${next} JP`;
+  if (level >= MAX_JOB_LEVEL) return `Job Lv ${level} · ${jp} JP`;
+  const toNext = JOB_LEVEL_JP[level - 1]! - (unit.jpTotal[jobId] ?? 0);
+  return `Job Lv ${level} · ${jp} JP (${toNext} to next)`;
 }
 
 export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) => void, portraits: Portraits | null = null): ActionMenuView {
@@ -115,7 +116,7 @@ export function mountActionMenu(root: HTMLElement, onAction: (key: ActionKey) =>
 
       const avatar = el('div', 'panel avatar');
       const portrait = portraitElement(unit, portraits);
-      avatar.append(portrait, el('div', 'name', unit.name), el('div', 'job', `${j.name} · Lv ${unit.level}`), el('div', 'job', rankLine(unit, j.id)));
+      avatar.append(portrait, el('div', 'name', unit.name), el('div', 'job', `${j.name} · Lv ${unit.level}`), el('div', 'job', jobLine(unit, j.id)));
 
       const sectionTitle: Partial<Record<Action['section'], string>> = {
         primary: j.name,

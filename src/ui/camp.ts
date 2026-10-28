@@ -1,21 +1,29 @@
 import { JOBS } from '../data/jobs';
 import { canEquip, GEAR_SLOTS, item } from '../rules/items';
-import { availableJobs, effectiveStats, job, passiveOptions, rankOf, secondaryOptions, ultimateOptions, type Loadout } from '../rules/jobs';
-import { changeLoadout, debugJp, equip, rest, type RunState } from '../rules/run';
+import { ability, availableJobs, effectiveStats, isMastered, job, jobLevel, knows, missingRequirements, secondaryOptions, slotOptions, type Loadout } from '../rules/jobs';
+import { changeLoadout, debugJp, equip, learnAbility, rest, type RunState } from '../rules/run';
 import type { Unit } from '../rules/types';
 import { OWNER_COLORS } from '../render/units';
 import type { Portraits } from '../render/portraits';
-import { portraitElement, rankLine } from './actionMenu';
+import { jobLine, portraitElement } from './actionMenu';
 import { button, cssColor, el, screen } from './dom';
 
-// Camp node (docs/DESIGN.md §5.1): change each unit's job, secondary, passive,
-// ultimate and gear, and rest once to heal half of everyone's max HP. A debug
-// JP button appears in dev builds or with ?debug, for testing progression.
+// Camp node (docs/DESIGN.md §5.1, §6; decision 0023): change each unit's job,
+// secondary, ability slots and gear, spend JP to learn abilities, and rest once
+// to heal half of everyone's max HP. A debug JP button appears in dev builds or
+// with ?debug, for testing progression.
 
 export const DEBUG_JP = 100;
 const SHOW_DEBUG = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
 
 const SLOT_NAMES = { weapon: 'Weapon', armor: 'Armor', accessory: 'Accessory' } as const;
+const ABILITY_SLOTS = [
+  ['reaction', 'Reaction'],
+  ['support', 'Support'],
+  ['movement', 'Movement'],
+  ['ultimate', 'Ultimate'],
+] as const;
+const KIND_NAMES = { action: 'Action', reaction: 'Reaction', support: 'Support', movement: 'Movement', ultimate: 'Ultimate', combo: 'Combo' } as const;
 
 export function mountCamp(
   root: HTMLElement,
@@ -24,6 +32,8 @@ export function mountCamp(
 ) {
   let run = initial;
   const s = screen(root, 'camp');
+  /** The job each unit's learn list is showing (defaults to its current job). */
+  const studying = new Map<string, string>();
 
   const apply = (r: RunState | { error: string }, errorEl: HTMLElement) => {
     if ('error' in r) {
@@ -53,16 +63,16 @@ export function mountCamp(
     c.style.borderTop = `4px solid ${cssColor(OWNER_COLORS[u.ownerId] ?? 0x999999)}`;
     const head = el('div', 'camp-head');
     const titles = el('div');
-    titles.append(el('div', 'name', `${u.name} · ${u.ownerId}`), el('div', 'job', `${job(u.job).name} · ${rankLine(u, u.job)}`));
+    titles.append(el('div', 'name', `${u.name} · ${u.ownerId}`), el('div', 'job', `${job(u.job).name} · ${jobLine(u, u.job)}`));
     head.append(portraitElement(u, opts.portraits ?? null), titles);
     c.append(head);
     const error = el('div', 'error');
 
     const loadout = (patch: Partial<Loadout>) => {
-      const next: Loadout = { job: u.job, secondary: u.secondary, passive: u.passive, ultimate: u.ultimate, ...patch };
+      const next: Loadout = { job: u.job, secondary: u.secondary, reaction: u.reaction, support: u.support, movement: u.movement, ultimate: u.ultimate, ...patch };
       // A job can't be its own secondary: switching into it clears the slot.
       if (next.secondary === next.job) next.secondary = undefined;
-      for (const k of ['secondary', 'passive', 'ultimate'] as const) if (!next[k]) delete next[k];
+      for (const k of ['secondary', 'reaction', 'support', 'movement', 'ultimate'] as const) if (!next[k]) delete next[k];
       apply(changeLoadout(run, u.id, next), error);
     };
 
@@ -70,8 +80,9 @@ export function mountCamp(
     c.append(
       select('Job', u.job, jobs, false, (id) => loadout({ job: id })),
       select('Secondary', u.secondary ?? '', secondaryOptions(u).map((j) => ({ id: j.id, name: j.name })), true, (id) => loadout({ secondary: id || undefined })),
-      select('Passive', u.passive ?? '', passiveOptions(u).map((a) => ({ id: a.id, name: a.name })), true, (id) => loadout({ passive: id || undefined })),
-      select('Ultimate', u.ultimate ?? '', ultimateOptions(u).map((a) => ({ id: a.id, name: a.name })), true, (id) => loadout({ ultimate: id || undefined })),
+      ...ABILITY_SLOTS.map(([slot, label]) =>
+        select(label, u[slot] ?? '', slotOptions(u, slot).map((a) => ({ id: a.id, name: a.name })), true, (id) => loadout({ [slot]: id || undefined })),
+      ),
     );
 
     // Gear: what's equipped plus anything in the stash this unit can use.
@@ -82,18 +93,46 @@ export function mountCamp(
       c.append(select(SLOT_NAMES[slot], current ?? '', options, true, (id) => apply(equip(run, u.id, slot, id || null), error)));
     }
 
-    // JP in every job the unit has touched.
-    const jp = el('div', 'jp-list');
-    for (const j of Object.values(JOBS)) {
-      const amount = u.jp[j.id];
-      if (amount === undefined) continue;
-      const rank = rankOf(u, j.id);
-      jp.append(el('span', rank >= 3 ? 'jp mastered' : 'jp', `${j.name} ${rank >= 3 ? '★' : `R${rank}`} ${amount}`));
-    }
-    c.append(jp, el('div', 'job', `HP ${u.hp}/${effectiveStats(u).hp} · Lv ${u.level}`));
+    c.append(learnPanel(u, error));
+    c.append(el('div', 'job', `HP ${u.hp}/${effectiveStats(u).hp} · Lv ${u.level}`));
     if (SHOW_DEBUG) c.append(button(`+${DEBUG_JP} JP (debug)`, () => apply(debugJp(run, u.id, DEBUG_JP), error), { className: 'debug' }));
     c.append(error);
     return c;
+  };
+
+  /** One job's abilities with JP prices and Learn buttons, a job picker, and what the locked jobs need. */
+  const learnPanel = (u: Unit, error: HTMLElement) => {
+    const panel = el('div', 'learn');
+    const unlocked = availableJobs(u);
+    const current = studying.get(u.id) ?? u.job;
+    const shown = unlocked.some((j) => j.id === current) ? current : u.job;
+    const label = (id: string) => `${job(id).name} · Lv ${jobLevel(u, id)} · ${u.jp[id] ?? 0} JP${isMastered(u, id) ? ' ★' : ''}`;
+    panel.append(
+      select('Learn', shown, unlocked.map((j) => ({ id: j.id, name: label(j.id) })), false, (id) => {
+        studying.set(u.id, id);
+        render();
+      }),
+    );
+    const list = el('div', 'learn-list');
+    const jp = u.jp[shown] ?? 0;
+    for (const { abilityId, jp: price } of job(shown).abilities) {
+      const a = ability(abilityId);
+      const row = el('div', knows(u, abilityId) ? 'learn-row known' : 'learn-row');
+      row.title = a.description;
+      row.append(el('span', 'kind', KIND_NAMES[a.kind]), el('span', 'label', a.name));
+      if (knows(u, abilityId)) row.append(el('span', 'detail', 'Learned'));
+      else row.append(button(`${price} JP`, () => apply(learnAbility(run, u.id, shown, abilityId), error), { className: 'learn-buy', disabled: jp < price }));
+      list.append(row);
+    }
+    panel.append(list);
+    const locked = Object.values(JOBS).filter((j) => j.tier > 0 && !unlocked.includes(j));
+    if (locked.length) {
+      const next = el('details', 'locked-jobs');
+      next.append(el('summary', '', `Locked jobs (${locked.length})`));
+      for (const j of locked) next.append(el('div', 'locked-job', `${j.name}: ${missingRequirements(u, j.id)}`));
+      panel.append(next);
+    }
+    return panel;
   };
 
   const render = () => {
